@@ -31,11 +31,32 @@ export default function ResourceList() {
     setSp(n)
   }
   const onSort = (f: string) => setOrder(order === f + ' asc' ? f + ' desc' : f + ' asc')
+  const exportCsv = async () => {
+    try {
+      const r = await api.list(resource, { search, filters, order: order || undefined, limit: 500, offset: 0 })
+      const cols = res.list.filter(c => res.fields[c])
+      const cell = (c: string, v: any) => {
+        const f = res.fields[c]
+        if (v == null) return ''
+        if (f.type === 'many2one') return v.name
+        if (f.type === 'many2many' || f.type === 'one2many') return Array.isArray(v) ? v.map((x: any) => x.name).join('; ') : ''
+        if (f.type === 'selection') return (f.selection || []).find(s => s[0] === v)?.[1] ?? v
+        if (f.type === 'boolean') return v ? 'Sí' : 'No'
+        return String(v).replace(/<[^>]+>/g, ' ')
+      }
+      const esc = (x: string) => '"' + x.replace(/"/g, '""') + '"'
+      const lines = [cols.map(c => esc(res.fields[c].string)).join(',')].concat(r.records.map((rec: any) => cols.map(c => esc(cell(c, rec[c]))).join(',')))
+      const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${resource}_${new Date().toISOString().slice(0, 10)}.csv`; a.click()
+      toast(`Exportados ${r.records.length} registros`, 'ok')
+    } catch (e: any) { toast(e.message, 'err') }
+  }
   return (
     <div>
       <div className="toolbar">
         <div><h1>{res.label}</h1><div style={{ color: '#6b7280', fontSize: 12 }}>{total} registros</div></div>
         <span className="spacer" />
+        <button className="btn secondary" onClick={exportCsv}>Exportar CSV</button>
         {res.can.create && <button className="btn" onClick={() => nav(`/r/${resource}/new`)}>+ Nuevo {res.singular.toLowerCase()}</button>}
       </div>
       <div className="card tight">

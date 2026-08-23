@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <!-- Integrantes iniciales -->
+    <record id="member_direccion" model="aq.portal.member">
+        <field name="name">Antonio (Dirección)</field>
+        <field name="member_type">direccion</field>
+        <field name="is_direction" eval="True"/>
+        <field name="position">Dirección</field>
+    </record>
+    <record id="member_coordinacion" model="aq.portal.member">
+        <field name="name">Marina (Coordinación administrativa)</field>
+        <field name="member_type">empleado</field>
+        <field name="position">Coordinación administrativa y control operativo</field>
+    </record>
+    <!-- Portafolio inicial de clientes -->
+    <record id="partner_sai" model="res.partner"><field name="name">Servicios Ambientales Internacionales — SAI</field><field name="is_company" eval="True"/></record>
+    <record id="partner_som" model="res.partner"><field name="name">SOM Group / Stonia</field><field name="is_company" eval="True"/></record>
+    <record id="partner_ooak" model="res.partner"><field name="name">One of a Kind</field><field name="is_company" eval="True"/></record>
+    <record id="partner_hexagonos" model="res.partner"><field name="name">Hexágonos Mexicanos</field><field name="is_company" eval="True"/></record>
+    <record id="project_sai" model="aq.portal.project"><field name="name">SAI · Proyecto Odoo</field><field name="partner_id" ref="partner_sai"/><field name="stage">ejecucion</field><field name="responsible_id" ref="member_direccion"/></record>
+    <record id="project_som" model="aq.portal.project"><field name="name">SOM Group / Stonia · Proyecto Odoo</field><field name="partner_id" ref="partner_som"/><field name="stage">ejecucion</field><field name="responsible_id" ref="member_direccion"/></record>
+    <record id="project_ooak" model="aq.portal.project"><field name="name">One of a Kind · Proyecto Odoo</field><field name="partner_id" ref="partner_ooak"/><field name="stage">ejecucion</field><field name="responsible_id" ref="member_direccion"/></record>
+    <record id="project_hexagonos" model="aq.portal.project"><field name="name">Hexágonos Mexicanos · Proyecto Odoo</field><field name="partner_id" ref="partner_hexagonos"/><field name="stage">ejecucion</field><field name="responsible_id" ref="member_direccion"/></record>
+</odoo>

@@ -15,6 +15,7 @@
         "data/procedure_steps.xml",
         "data/routines.xml",
         "data/onboarding_deliverables.xml",
+        "data/initial_portfolio.xml",
         "data/mail_templates.xml",
         "data/ir_cron.xml",
         "views/portal_user_views.xml",

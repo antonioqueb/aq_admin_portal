@@ -35,4 +35,6 @@
     <menuitem id="menu_res_members" name="Integrantes del equipo" parent="menu_aq_portal_sec_admin" action="action_res_members" sequence="20"/>
     <menuitem id="menu_res_audit" name="Bitácora de auditoría" parent="menu_aq_portal_sec_admin" action="action_res_audit" sequence="30"/>
     <menuitem id="menu_aq_portal_users" name="Usuarios externos del portal" parent="menu_aq_portal_sec_admin" action="action_aq_portal_user" sequence="5"/>
+    <menuitem id="menu_res_meetings" name="Reuniones, minutas y revisiones administrativas" parent="menu_aq_portal_sec_prioritarias" action="action_res_meetings" sequence="25"/>
+    <menuitem id="menu_res_clients" name="Clientes (directorio)" parent="menu_aq_portal_sec_prioritarias" action="action_res_clients" sequence="75"/>
 </odoo>

@@ -81,3 +81,5 @@ access_model_aq_portal_audit_log_manager,aq.portal.audit.log manager,aq_admin_po
 access_model_aq_portal_audit_log_user,aq.portal.audit.log user,aq_admin_portal.model_aq_portal_audit_log,base.group_user,1,0,0,0
 access_model_aq_portal_followup_manager,aq.portal.followup manager,aq_admin_portal.model_aq_portal_followup,aq_admin_portal.group_aq_portal_manager,1,1,1,1
 access_model_aq_portal_followup_user,aq.portal.followup user,aq_admin_portal.model_aq_portal_followup,base.group_user,1,0,0,0
+access_model_aq_portal_meeting_manager,aq.portal.meeting manager,aq_admin_portal.model_aq_portal_meeting,aq_admin_portal.group_aq_portal_manager,1,1,1,1
+access_model_aq_portal_meeting_user,aq.portal.meeting user,aq_admin_portal.model_aq_portal_meeting,base.group_user,1,0,0,0

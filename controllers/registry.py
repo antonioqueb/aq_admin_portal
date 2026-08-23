@@ -92,9 +92,9 @@ RESOURCES = {
         "model": "aq.portal.agreement", "label": "Acuerdos y pendientes", "singular": "Acuerdo / pendiente",
         "section": "prioritarias", "icon": "check", "order": 20, "attachments": True, "chatter": True,
         "list": ["name", "project_id", "executor_id", "due_date", "state", "in_scope", "authorization_state", "escalated", "is_repeated", "needs_formalization"],
-        "filters": ["state", "is_overdue", "executor_id", "project_id", "escalated", "is_repeated", "needs_formalization", "risk_type", "in_scope"],
+        "filters": ["state", "is_overdue", "executor_id", "project_id", "meeting_id", "escalated", "is_repeated", "needs_formalization", "risk_type", "in_scope"],
         "groups": [
-            {"title": "Acuerdo", "fields": ["name", "description", "project_id", "partner_id", "meeting_date", "meeting_ref", "source", "needs_formalization", "formalized"]},
+            {"title": "Acuerdo", "fields": ["name", "description", "project_id", "partner_id", "meeting_id", "meeting_date", "meeting_ref", "source", "needs_formalization", "formalized"]},
             {"title": "Responsables", "fields": ["requested_by", "requested_by_partner_id", "executor_id", "due_date", "client_dependent", "priority"]},
             {"title": "Alcance y autorización", "fields": ["info_required", "in_scope", "requires_authorization", "authorization_state", "authorized_by_id", "authorization_date", "change_request_id"]},
             {"title": "Validación y cierre", "fields": ["completion_evidence", "validator_id", "validator_partner_id", "state", "closed_date", "closure_evidence", "closure_validated"]},
@@ -111,6 +111,46 @@ RESOURCES = {
         ],
         "direction_fields": ["authorization_state", "authorized_by_id", "authorization_date"],
         "roles": {"read": ROLE_ALL, "write": ROLE_TEAM, "create": ROLE_TEAM, "delete": ["direccion"]},
+    },
+    "meetings": {
+        "model": "aq.portal.meeting", "label": "Reuniones, minutas y revisiones administrativas", "singular": "Reunión",
+        "section": "prioritarias", "icon": "calendar", "order": 25, "attachments": True, "chatter": True,
+        "list": ["date", "name", "meeting_type", "project_id", "partner_id", "convened_by_id", "agreement_count", "open_agreement_count", "state", "next_meeting_date"],
+        "filters": ["meeting_type", "state", "project_id", "partner_id", "convened_by_id"],
+        "groups": [
+            {"title": "Reunión", "fields": ["name", "meeting_type", "date", "location", "convened_by_id", "member_ids", "external_attendees", "state"]},
+            {"title": "Relación", "fields": ["project_id", "partner_id", "prospect_id", "next_meeting_date", "notified", "minutes_sent_date"]},
+            {"title": "Orden del día y minuta", "fields": ["agenda", "minutes", "agreement_count", "open_agreement_count", "notes"]},
+        ],
+        "tabs": [{"field": "agreement_ids", "resource": "agreements", "parent_field": "meeting_id", "label": "Acuerdos y pendientes"}],
+        "actions": [
+            {"name": "action_convene", "label": "Convocar (enviar convocatoria)", "roles": ROLE_WRITE},
+            {"name": "action_mark_done", "label": "Marcar realizada", "roles": ROLE_TEAM},
+            {"name": "action_send_minutes", "label": "Enviar minuta a convocados", "roles": ROLE_WRITE},
+        ],
+        "roles": {"read": ROLE_ALL, "write": ROLE_TEAM, "create": ROLE_TEAM, "delete": ["direccion"]},
+    },
+    "clients": {
+        "model": "res.partner", "label": "Clientes (directorio)", "singular": "Cliente", "section": "prioritarias", "icon": "building", "order": 75,
+        "domain": [("is_company", "=", True)], "defaults": {"is_company": True},
+        "only_fields": ["name", "vat", "email", "phone", "mobile", "website", "street", "street2", "city", "state_id", "zip", "country_id",
+                        "is_company", "parent_id", "child_ids", "function", "comment", "active"],
+        "list": ["name", "vat", "email", "phone", "city", "country_id"],
+        "filters": ["country_id"],
+        "groups": [
+            {"title": "Razón social y datos fiscales", "fields": ["name", "vat", "email", "phone", "mobile", "website"]},
+            {"title": "Domicilio fiscal", "fields": ["street", "street2", "city", "state_id", "zip", "country_id"]},
+            {"title": "Notas", "fields": ["comment"]},
+        ],
+        "tabs": [{"field": "child_ids", "resource": "contacts", "parent_field": "parent_id", "label": "Contactos"}],
+        "roles": {"read": ROLE_ALL, "write": ROLE_WRITE, "create": ROLE_WRITE, "delete": []},
+    },
+    "contacts": {
+        "model": "res.partner", "label": "Contactos", "singular": "Contacto", "section": None,
+        "only_fields": ["name", "function", "email", "phone", "mobile", "parent_id", "comment", "active"],
+        "list": ["name", "function", "email", "phone", "mobile"],
+        "groups": [{"title": "Contacto", "fields": ["name", "function", "email", "phone", "mobile", "comment"]}],
+        "roles": {"read": ROLE_ALL, "write": ROLE_WRITE, "create": ROLE_WRITE, "delete": []},
     },
     # ------------------------------------------------------------------ 1.3
     "invoices": {
@@ -535,6 +575,8 @@ NAME_SEARCH_DOMAINS = {"account.move": [("move_type", "in", ("out_invoice", "out
 
 
 def resource_for_model(model):
+    if model == "res.partner":
+        return "clients"
     for key, r in RESOURCES.items():
         if r["model"] == model and r.get("section") is not None:
             return key

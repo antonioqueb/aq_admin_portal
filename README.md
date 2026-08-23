@@ -9,11 +9,13 @@ descrito en la carta de incorporación de la coordinadora administrativa.
 | Sección de la carta | Recurso del portal | Modelo Odoo |
 |---|---|---|
 | 1.1 Control general de proyectos | Control maestro de proyectos (+ fechas relevantes, pasos del procedimiento, entregables) | `aq.portal.project`, `aq.portal.project.date`, `aq.portal.project.step`, `aq.portal.deliverable` |
+| 1.2 Reuniones y minutas; convocar revisiones administrativas (sección 6) | Reuniones/minutas con convocatoria por correo, minuta y acuerdos derivados | `aq.portal.meeting` |
 | 1.2 Seguimiento de acuerdos y pendientes | Acuerdos y pendientes (solicitar actualización, escalar, autorizar, formalizar acuerdos verbales/WhatsApp) | `aq.portal.agreement` |
 | 1.3 Facturación | Calendario de facturación (datos fiscales, evidencia, envío, recepción, complemento, detener y validar) | `aq.portal.invoice.schedule` |
 | 1.4 Cuentas por cobrar y cobranza | CxC con pagos, seguimientos, compromisos de pago, riesgo, escalamiento y convenios autorizados por Dirección | `aq.portal.receivable`, `aq.portal.receivable.payment` |
 | 1.5 Cuentas por pagar | CxP por categoría con autorización y ejecución reservadas a Dirección, recurrencias | `aq.portal.payable` |
 | 1.6 Horas, alcances y trabajo facturable | Bolsas de horas, registro de horas, hallazgos (sin facturar, sin registro, fuera de alcance, sin autorización) | `aq.portal.hour.bucket`, `aq.portal.hour.entry` |
+| 1.7 Control de clientes (separado de prospectos) | Directorio de clientes y contactos | `res.partner` (recurso `clients`) |
 | 1.7 Control de prospectos | Prospectos con interacciones, propuesta, vigencia, etapa, resultado, motivo de pérdida, conversión a cliente/proyecto | `aq.portal.prospect` |
 | 1.8 Organización documental | Documentos por expediente, nomenclatura, versiones, firmados, confidencialidad, duplicados, faltantes, archivos adjuntos | `aq.portal.document` + `ir.attachment` |
 | 1.9 Inventario legal inicial | Matriz de contratos y documentos legales (existe / vigente / falta / riesgo / prioridad) | `aq.portal.legal.item` |
@@ -35,6 +37,8 @@ descrito en la carta de incorporación de la coordinadora administrativa.
 | 5 Entregables de incorporación | Entregables por fase (semana 1, 15, 30, 60, 90 días) | `aq.portal.onboarding.deliverable` |
 | 6 Facultades y límites | Roles y campos "solo Dirección" (autorizaciones, pagos, convenios, aprobaciones) | registro `controllers/registry.py` |
 | Transversal | Alertas diarias, resumen por correo, bitácora de auditoría, seguimientos, reportes ejecutivos | `aq.portal.alert`, `aq.portal.audit.log`, `aq.portal.followup`, `aq.portal.report` |
+
+Datos iniciales: integrantes (Dirección y Coordinación), los 4 clientes del portafolio inicial con un proyecto cada uno, 15 pasos del procedimiento, rutinas diarias/semanales/mensuales y entregables de incorporación. Todos los listados se exportan a CSV.
 
 ## Usuarios externos y seguridad
 

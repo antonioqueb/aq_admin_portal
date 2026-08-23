@@ -66,6 +66,16 @@ export default function ResourceForm() {
         {!isNew && res.actions.map(a => <button key={a.name} className="btn secondary" onClick={() => run(a)}>{a.label}</button>)}
         {!isNew && res.can.delete && <button className="btn danger small" onClick={remove}>Archivar</button>}
       </div>
+      {resource === 'documents' && canWrite && (
+        <div className="alert info" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          Nomenclatura estándar: <code>AAAA-MM-DD_Tipo_Contraparte_Versión</code>
+          <button className="btn secondary small" onClick={async () => {
+            const cp = value('partner_id')?.name || value('employee_id')?.name || value('vendor_id')?.name || value('project_id')?.name || ''
+            const r = await api.get('/documents/suggest-name', { doc_type: value('document_type') || value('folder_type') || 'DOC', counterparty: cp, version: 'v' + (value('version') || '1'), date: value('doc_date') || undefined })
+            set('name', r.name)
+          }}>Sugerir nombre</button>
+        </div>
+      )}
       {res.sensitive && <div className="alert info">Información confidencial: no elimine, mueva ni sustituya documentos de este expediente sin validación de Dirección.</div>}
       {!isNew && (
         <div className="tabs">

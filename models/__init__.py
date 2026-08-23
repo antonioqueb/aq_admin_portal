@@ -3,6 +3,7 @@ from . import member
 from . import portal_user
 from . import project
 from . import agreement
+from . import meeting
 from . import billing
 from . import receivable
 from . import payable

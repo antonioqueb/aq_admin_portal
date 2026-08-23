@@ -109,9 +109,11 @@ def _serialize_value(rec, fname, finfo):
 
 def _field_list(model, resource):
     Model = request.env[model].sudo()
-    info = Model.fields_get()
+    cfg = RESOURCES.get(resource) or {}
+    only = cfg.get("only_fields")
+    info = Model.fields_get(only) if only else Model.fields_get()
     hidden = COMMON_HIDDEN
-    return {k: v for k, v in info.items() if k not in hidden}
+    return {k: v for k, v in info.items() if k not in hidden and (not only or k in only)}
 
 
 def _serialize(rec, finfo_map, fnames=None):
@@ -175,10 +177,10 @@ def _check(cfg, op, user):
         raise AccessError(_("Su rol (%s) no permite '%s' en %s.") % (user.role, op, cfg["label"]))
 
 
-def _build_domain(model, params):
+def _build_domain(model, params, resource=None):
     Model = request.env[model].sudo()
     info = Model.fields_get()
-    domain = []
+    domain = list((RESOURCES.get(resource) or {}).get("domain", []))
     search = params.get("search")
     if search:
         name_field = Model._rec_name or "name"
@@ -315,7 +317,7 @@ class PortalApi(http.Controller):
         _check(cfg, "read", user)
         Model = request.env[cfg["model"]].sudo()
         params = request.params
-        domain = _build_domain(cfg["model"], params)
+        domain = _build_domain(cfg["model"], params, resource)
         limit = min(int(params.get("limit", 80)), 500)
         offset = int(params.get("offset", 0))
         order = params.get("order") or None
@@ -351,7 +353,7 @@ class PortalApi(http.Controller):
         cfg = _cfg(resource)
         _check(cfg, "create", user)
         body = _body()
-        vals = _prepare_vals(cfg["model"], body, user, cfg, create=True)
+        vals = dict(cfg.get("defaults", {}), **_prepare_vals(cfg["model"], body, user, cfg, create=True))
         rec = request.env[cfg["model"]].sudo().with_context(portal_user_id=user.id).create(vals)
         _log(user, "create", resource=resource, model=cfg["model"], res_id=rec.id, summary=rec.display_name, changes=body)
         info = _field_list(cfg["model"], resource)
@@ -494,6 +496,13 @@ class PortalApi(http.Controller):
             _log(user, "unlink", resource=resource, model=att.res_model, res_id=att.res_id, summary=_("Archivo eliminado: %s") % att.name)
             att.unlink()
         return _json({"ok": True})
+
+    @portal_route(API + "/documents/suggest-name", methods=["GET"])
+    def suggest_name(self, user):
+        p = request.params
+        d = fields.Date.to_date(p.get("date")) if p.get("date") else None
+        name = request.env["aq.portal.document"].sudo().suggest_name(p.get("doc_type"), p.get("counterparty"), p.get("version") or "v1", d)
+        return _json({"name": name})
 
     # ------------------------------------------------------------------ búsquedas
     @portal_route(API + "/name_search", methods=["GET"])

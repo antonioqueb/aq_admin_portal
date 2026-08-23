@@ -140,4 +140,16 @@
         <field name="res_model">aq.portal.audit.log</field>
         <field name="view_mode">list,form</field>
     </record>
+    <record id="action_res_meetings" model="ir.actions.act_window">
+        <field name="name">Reuniones, minutas y revisiones administrativas</field>
+        <field name="res_model">aq.portal.meeting</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_clients" model="ir.actions.act_window">
+        <field name="name">Clientes (directorio)</field>
+        <field name="res_model">res.partner</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[("is_company", "=", True)]</field>
+        <field name="context">{"default_is_company": True}</field>
+    </record>
 </odoo>
