@@ -66,10 +66,9 @@ Datos iniciales: integrantes (Dirección y Coordinación), los 4 clientes del po
 
 3. Parámetro opcional `aq_admin_portal.base_url` (Ajustes → Técnico → Parámetros del sistema) con la URL
    pública si difiere de `web.base.url` (se usa para los enlaces de los correos).
-4. Los usuarios se crean **únicamente** en Odoo: **Portal Administrativo → Configuración del portal →
-   Usuarios del portal**: Nombre, Login, Correo, Rol, Integrante relacionado, y contraseña mediante
-   *Nueva contraseña* o el botón *Enviar enlace para establecer contraseña*. En esa misma sección están
-   Sesiones activas, Integrantes del equipo y Parámetros del portal. El portal web no permite crear ni
+4. Los usuarios se crean **únicamente** en Odoo: la app **Usuarios del Portal → Usuarios** (segundo menú raíz del mismo módulo): Nombre, Login, Correo, Rol, Integrante relacionado, y contraseña mediante
+   *Nueva contraseña* o el botón *Enviar enlace para establecer contraseña*. En esa misma app están Sesiones activas y
+   Configuración (Parámetros del portal y plantilla de correo de acceso). El portal web no permite crear ni
    administrar usuarios. Los usuarios del portal no son `res.users` y no consumen licencias de Odoo.
 5. Abrir `https://<servidor>/admin-portal` e iniciar sesión.
 
