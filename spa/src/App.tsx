@@ -14,6 +14,7 @@ import Users from './pages/Users'
 import Profile from './pages/Profile'
 import Alerts from './pages/Alerts'
 import ChangePassword from './pages/ChangePassword'
+import Setup from './pages/Setup'
 
 export default function App() {
   const { user, loading, toasts } = useApp()
@@ -23,6 +24,7 @@ export default function App() {
     <>
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
+        <Route path="/setup" element={user ? <Navigate to="/" /> : <Setup />} />
         <Route path="/forgot-password" element={<Forgot />} />
         <Route path="/reset-password" element={<Reset />} />
         {!user && <Route path="*" element={<Navigate to="/login" state={{ from: loc.pathname }} />} />}

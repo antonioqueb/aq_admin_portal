@@ -66,10 +66,11 @@ Datos iniciales: integrantes (Dirección y Coordinación), los 4 clientes del po
 
 3. Parámetro opcional `aq_admin_portal.base_url` (Ajustes → Técnico → Parámetros del sistema) con la URL
    pública si difiere de `web.base.url` (se usa para los enlaces de los correos).
-4. En Odoo: **Portal Administrativo → Administración → Usuarios externos del portal** → crear el primer
-   usuario con rol *Dirección* y pulsar **Enviar enlace para establecer contraseña** (o escribir una
-   contraseña en *Nueva contraseña*).
-5. Abrir `https://<servidor>/admin-portal`.
+4. Abrir `https://<servidor>/admin-portal`. Mientras no exista ningún usuario del portal, se muestra la
+   pantalla de **configuración inicial** para crear la primera cuenta de *Dirección* sin entrar a Odoo
+   (opcionalmente protegida con el parámetro `aq_admin_portal.setup_key`). Desde esa cuenta se dan de alta
+   los demás usuarios en **Administración → Usuarios del portal**. Los usuarios del portal no son `res.users`
+   y no consumen licencias de Odoo.
 
 Parámetros del sistema: `aq_admin_portal.stale_days` (5), `warn_days` (7), `prospect_days` (7),
 `depletion_threshold` (80 %), `session_hours` (12).

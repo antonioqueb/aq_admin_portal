@@ -247,6 +247,36 @@ class PortalApi(http.Controller):
         _log(user, "login", summary=_("Inicio de sesión"))
         return _json({"token": token, "user": user.to_public_dict()})
 
+    @portal_route(API + "/auth/status", methods=["GET"], auth_required=False)
+    def status(self, _u):
+        User = request.env["aq.portal.user"].sudo().with_context(active_test=False)
+        icp = request.env["ir.config_parameter"].sudo()
+        return _json({"needs_setup": User.search_count([]) == 0,
+                      "setup_key_required": bool(icp.get_param("aq_admin_portal.setup_key")),
+                      "company": request.env.company.name})
+
+    @portal_route(API + "/auth/setup", methods=["POST"], auth_required=False)
+    def setup(self, _u):
+        """Crea el primer usuario (Dirección) sin pasar por Odoo. Solo funciona mientras no exista ningún usuario."""
+        User = request.env["aq.portal.user"].sudo().with_context(active_test=False)
+        if User.search_count([]):
+            return _error(_("La configuración inicial ya se realizó. Inicie sesión o use 'Olvidé mi contraseña'."), 403)
+        body = _body()
+        icp = request.env["ir.config_parameter"].sudo()
+        key = icp.get_param("aq_admin_portal.setup_key")
+        if key and (body.get("setup_key") or "") != key:
+            return _error(_("Clave de configuración incorrecta."), 403)
+        for f in ("name", "login", "email", "password"):
+            if not body.get(f):
+                raise UserError(_("Falta el campo '%s'.") % f)
+        member = request.env["aq.portal.member"].sudo().search([("is_direction", "=", True)], limit=1)
+        user = User.create({"name": body["name"], "login": body["login"], "email": body["email"], "role": "direccion",
+                            "member_id": member.id or False})
+        user.set_password(body["password"], must_change=False)
+        _log(user, "create", resource="users", model="aq.portal.user", res_id=user.id, summary=_("Configuración inicial: primer usuario de Dirección"))
+        _, token = User.authenticate(body["login"], body["password"], ip=_ip(), user_agent=request.httprequest.headers.get("User-Agent"))
+        return _json({"token": token, "user": user.to_public_dict()}, status=201)
+
     @portal_route(API + "/auth/logout", methods=["POST"])
     def logout(self, user):
         request.env["aq.portal.user"].sudo().logout_token(_token())

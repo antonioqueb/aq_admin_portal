@@ -1,4 +1,5 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
+import { api } from '../api'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '../context'
 
@@ -6,6 +7,7 @@ export default function Login() {
   const { login } = useApp()
   const nav = useNavigate()
   const loc = useLocation() as any
+  useEffect(() => { api.get('/auth/status').then(s => { if (s.needs_setup) nav('/setup') }).catch(() => {}) }, [nav])
   const [l, setL] = useState(''); const [p, setP] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false)
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setBusy(true); setErr('')
