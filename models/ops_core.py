@@ -174,7 +174,9 @@ class OpsProject(models.Model):
     def _compute_probable(self):
         for p in self:
             dates = [m.date_current for m in p.milestone_ids if m.date_current and m.state != "validado"]
-            p.date_end_probable = max(dates + [p.date_end_current]) if (dates or p.date_end_current) else False
+            if p.date_end_current:
+                dates.append(p.date_end_current)
+            p.date_end_probable = max(dates) if dates else False
 
     def _compute_next(self):
         today = fields.Date.today()
