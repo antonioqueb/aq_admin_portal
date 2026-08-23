@@ -33,8 +33,39 @@ class OpsAI(models.AbstractModel):
         key = (os.environ.get("DEEPSEEK_API_KEY") or icp.get_param("aq_ops.deepseek_api_key") or icp.get_param("DEEPSEEK_API_KEY") or (i.api_key if i else "") or "").strip()
         enabled = bool(key) and (not i or i.enabled or bool(os.environ.get("DEEPSEEK_API_KEY")))
         return {"key": key, "enabled": enabled, "base_url": (os.environ.get("DEEPSEEK_BASE_URL") or (i.base_url if i else "") or "https://api.deepseek.com").rstrip("/"),
-                "model": os.environ.get("DEEPSEEK_MODEL") or (i.model if i else "") or "deepseek-chat", "record": i,
+                "model": os.environ.get("DEEPSEEK_MODEL") or icp.get_param("aq_ops.deepseek_model_auto") or (i.model if i else "") or "deepseek-chat", "record": i,
                 "source": "env" if os.environ.get("DEEPSEEK_API_KEY") else "param" if (icp.get_param("aq_ops.deepseek_api_key") or icp.get_param("DEEPSEEK_API_KEY")) else "record" if key else "none"}
+
+    @api.model
+    def list_models(self):
+        c = self._config()
+        if not c["key"]:
+            return []
+        r = requests.get(c["base_url"] + "/models", headers={"Authorization": "Bearer %s" % c["key"]}, timeout=20)
+        r.raise_for_status()
+        return [m.get("id") for m in r.json().get("data", []) if m.get("id")]
+
+    @api.model
+    def pick_latest_model(self, prefer_reasoning=False):
+        """Elige el modelo más reciente disponible en la cuenta de DeepSeek y lo guarda (aq_ops.deepseek_model_auto)."""
+        icp = self.env["ir.config_parameter"].sudo()
+        try:
+            models_ = self.list_models()
+        except Exception as e:  # noqa
+            return {"model": self._config()["model"], "error": str(e)}
+        if not models_:
+            return {"model": self._config()["model"], "models": []}
+        def score(mid):
+            nums = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", mid)]
+            return (max(nums) if nums else 0.0, 1 if ("reasoner" in mid) == prefer_reasoning else 0, mid)
+        # Los alias 'deepseek-chat' / 'deepseek-reasoner' apuntan siempre a la última versión publicada por DeepSeek.
+        versioned = [m for m in models_ if re.search(r"\d", m)]
+        chosen = max(versioned, key=score) if versioned else ("deepseek-reasoner" if prefer_reasoning and "deepseek-reasoner" in models_ else "deepseek-chat" if "deepseek-chat" in models_ else models_[0])
+        icp.set_param("aq_ops.deepseek_model_auto", chosen)
+        i = self._integration()
+        if i:
+            i.write({"model": chosen, "enabled": True})
+        return {"model": chosen, "models": models_}
 
     @api.model
     def available(self):
@@ -203,3 +234,70 @@ class OpsAI(models.AbstractModel):
         cands = item.project_id.item_ids.filtered(lambda i: i.id != item.id and i.state not in ("cerrado", "cancelado") and i.item_type in ("tarea", "requerimiento", "historia", "entregable"))
         scored = sorted(((len(words & set(re.findall(r"[a-záéíóúñ0-9]{5,}", c.name.lower()))), c) for c in cands), key=lambda x: -x[0])
         return [{"id": c.id, "name": c.name, "score": s} for s, c in scored[:5] if s]
+
+    # ------------------------------------------------------------------ asistente genérico (todas las fichas)
+    TASKS = {
+        "summarize": "Resume este registro en 5 líneas, con lo importante primero.",
+        "next": "Propón la siguiente acción concreta (una línea), con responsable sugerido y fecha relativa.",
+        "risks": "Identifica riesgos, supuestos y dependencias implícitas en este registro. Lista breve.",
+        "improve": "Reescribe el texto indicado con claridad profesional, sin cambiar el sentido; devuelve solo el texto.",
+        "draft": "Redacta un borrador breve y profesional del texto solicitado para el campo indicado; devuelve solo el texto.",
+        "questions": "Lista las preguntas abiertas que habría que resolver antes de avanzar.",
+        "criteria": "Propón criterios de aceptación verificables (Dado/Cuando/Entonces) para este elemento.",
+        "classify": "Clasifica y propón determinación.",
+        "email": "Redacta un correo breve y cordial al cliente sobre este registro; devuelve solo el cuerpo.",
+    }
+
+    @api.model
+    def assist(self, record, task, field=None, text=None, instructions=None):
+        """Asistencia sobre cualquier registro: se serializa lo esencial (sin campos sensibles) y se consulta al modelo."""
+        hidden = {"api_key", "password_hash", "mfa_secret", "mfa_pending_secret", "bank_info", "payment_amount", "reset_token_hash", "token_hash", "internal_notes"}
+        facts = {}
+        for name, f in record._fields.items():
+            if name in hidden or name.startswith("message_") or name.startswith("activity_") or f.type in ("binary", "one2many", "many2many") or name in ("id", "create_uid", "write_uid"):
+                continue
+            v = record[name]
+            if f.type == "many2one":
+                v = v.display_name if v else None
+            elif f.type == "html" and v:
+                v = re.sub(r"<[^>]+>", " ", v)
+            if v in (None, False, "", 0, 0.0):
+                continue
+            facts[f.string or name] = str(v)[:600]
+        task_text = self.TASKS.get(task, task)
+        extra = ("\nCampo objetivo: %s" % field) if field else ""
+        extra += ("\nTexto base:\n%s" % text) if text else ""
+        extra += ("\nInstrucciones adicionales: %s" % instructions) if instructions else ""
+        prompt = "Registro (%s):\n%s\n\nTarea: %s%s" % (record._description, json.dumps(facts, ensure_ascii=False)[:9000], task_text, extra)
+        out = self.chat(prompt, max_tokens=1200)
+        if out is None:
+            out = self._assist_heuristic(record, task, facts)
+        return out
+
+    def _assist_heuristic(self, record, task, facts):
+        name = facts.get("Nombre") or record.display_name
+        if task == "summarize":
+            return "%s. " % name + " ".join("%s: %s." % (k, v[:80]) for k, v in list(facts.items())[:6])
+        if task == "next":
+            return "Definir siguiente acción para '%s' con responsable y fecha (sin IA conectada: configure DEEPSEEK_API_KEY)." % name
+        if task == "criteria":
+            return "Dado el contexto de '%s', cuando se ejecute el flujo principal, entonces el resultado cumple lo descrito.\n- Validación de datos obligatorios\n- Permisos por perfil" % name
+        return "Copiloto sin conexión a DeepSeek. Resumen disponible: %s" % name
+
+    @api.model
+    def classify_request(self, request):
+        """Al crear una solicitud: propone clasificación, determinación y posibles duplicados (no decide: sugiere)."""
+        try:
+            a = self.compare_scope(request)
+        except Exception as e:  # noqa
+            a = {"in_scope": None, "reason": str(e), "classification": "sin_clasificar"}
+        det = "en_alcance" if a.get("in_scope") is True else "estimacion" if a.get("in_scope") is False else "pendiente"
+        dups = ", ".join(request.potential_duplicate_ids.mapped("name")[:3])
+        text = "Sugerencia del copiloto: clasificación '%s', determinación '%s'. %s%s" % (a.get("classification"), det, a.get("reason", ""), (" Posibles duplicados: %s." % dups) if dups else "")
+        request.with_context(aq_skip_activity=True).write({"ai_suggestion": text})
+        return text
+
+    @api.model
+    def digest_summary(self, lines):
+        out = self.chat("Resume en 4 líneas ejecutivas, priorizando lo crítico, estas alertas/notificaciones:\n" + "\n".join(lines[:80]), max_tokens=400)
+        return out or ""

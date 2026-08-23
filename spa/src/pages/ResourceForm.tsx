@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import OpsExtras from '../components/OpsExtras'
 import AdminExtras from '../components/AdminExtras'
+import Copilot from '../components/Copilot'
 import { useApp } from '../context'
 import { FieldRow } from '../components/Field'
 import SubTable from '../components/SubTable'
@@ -68,6 +69,7 @@ export default function ResourceForm() {
         {!isNew && res.actions.map(a => <button key={a.name} className="btn secondary" onClick={() => run(a)}>{a.label}</button>)}
         {!isNew && res.can.delete && <button className="btn danger small" onClick={remove}>Archivar</button>}
       </div>
+      {!isNew && <Copilot resource={resource} record={rec} fields={res.fields} value={value} set={set} />}
       {resource === 'documents' && canWrite && (
         <div className="alert info" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           Nomenclatura estándar: <code>AAAA-MM-DD_Tipo_Contraparte_Versión</code>

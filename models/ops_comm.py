@@ -88,6 +88,8 @@ class OpsNotification(models.Model):
             if not notes:
                 continue
             rows = "".join("<li><b>[%s]</b> %s</li>" % (dict(NOTIF_CATEGORIES)[n.category], n.title) for n in notes)
+            ai = self.env["aq.ops.ai"].digest_summary(["[%s] %s" % (n.category, n.title) for n in notes])
+            rows = (("<p style='border-left:3px solid #c89eff;padding-left:10px'><b>Copiloto:</b> %s</p>" % ai.replace("\n", "<br/>")) if ai else "") + rows
             html = Brand.wrap(_("Resumen de Operaciones"), "<ul>%s</ul>" % rows, _("Abrir Operaciones"), Brand.portal_url() + "/ops/notifications", subtitle=_("%d notificaciones pendientes") % len(notes))
             self.env["mail.mail"].sudo().create({"subject": _("AlphaOps · %d pendientes") % len(notes), "email_to": u.email, "body_html": html}).send()
             notes.write({"emailed": True})

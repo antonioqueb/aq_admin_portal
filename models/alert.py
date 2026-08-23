@@ -206,7 +206,8 @@ class Alert(models.Model):
                              "<div style='font-family:Oxanium,Roboto,Arial,sans-serif;font-size:10px;letter-spacing:.12em;color:#9a9aa3;margin-top:4px'>%s</div></td>"
                              % (SEVERITY_STYLE[s][1], counts[s], SEVERITY_STYLE[s][0]) for s in ("4", "3", "2", "1"))
                    + "</tr></table>")
-        body = summary + Brand.alert_rows(alerts)
+        ai = self.env["aq.ops.ai"].digest_summary([a.name for a in alerts]) if "aq.ops.ai" in self.env else ""
+        body = summary + (("<p style='border-left:3px solid #c89eff;padding-left:10px;margin-top:14px'><b>Copiloto:</b> %s</p>" % ai.replace("\n", "<br/>")) if ai else "") + Brand.alert_rows(alerts)
         today = fields.Date.today().strftime("%d/%m/%Y")
         html = Brand.wrap(_("Resumen diario de alertas"), body, cta_label=_("Abrir el portal"), cta_url=Brand.portal_url() + "/alerts",
                           subtitle=_("%s · %d alertas activas que requieren seguimiento") % (today, len(alerts)),

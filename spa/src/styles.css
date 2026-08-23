@@ -273,3 +273,5 @@ details.more{margin-top:14px}details.more summary{cursor:pointer;font-family:var
 .quick-row .quick{font-size:13px;padding:8px 10px}
 html[data-theme="light"] .kcol{background:#eef0ec}html[data-theme="light"] .kcol h4{background:#eef0ec}html[data-theme="light"] .kanban::-webkit-scrollbar-thumb{background:#cfd3ca}
 @media(max-width:760px){.kcol{min-width:86vw;width:86vw;max-height:none}.kb-tools input[type=range]{width:90px}}
+.copilot-wrap{margin-bottom:12px}.copilot-btn.on{border-color:var(--purple-bright);color:var(--purple-bright)}
+.copilot .chip-row button.on{border-color:var(--purple-bright);color:var(--purple-bright)}

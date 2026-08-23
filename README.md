@@ -194,3 +194,9 @@ migración, soporte, regulado, capacitación, cierre/handoff y creativo/catálog
 * **Hoy** (`/ops/today`, tecla `H`): agenda móvil con botones táctiles.
 * **Filtros guardados** por persona o equipo en cada listado; **notificaciones accionables** (aprobar, desbloquear, aprobar tiempo/decisión/liberación, incorporar cambio).
 * Atajos: `N` nuevo, `B` tablero, `M` mi trabajo, `H` hoy, `P` proyecto, `/` buscar.
+
+## Copiloto en toda la plataforma
+* Botón **✦ Copiloto** en todas las fichas (Administración y Operaciones): resumir, siguiente acción, riesgos y dependencias, preguntas abiertas, criterios de aceptación, correo al cliente, redactar o mejorar cualquier campo de texto (con inserción en el campo elegido).
+* Solicitudes: clasificación, determinación y duplicados sugeridos al crearse (`ai_suggestion`). Correos diarios (alertas y Operaciones) con resumen ejecutivo por IA.
+* Página **Operaciones → Copiloto de IA**: estado, fuente de la clave, prueba de conexión y "Usar el modelo más reciente" (consulta `/models` de DeepSeek y fija el más nuevo en `aq_ops.deepseek_model_auto`; los alias `deepseek-chat` / `deepseek-reasoner` apuntan siempre a la última versión publicada por DeepSeek).
+* Clave: `DEEPSEEK_API_KEY` como variable de entorno (recomendado) o como parámetro del sistema (`DEEPSEEK_API_KEY` o `aq_ops.deepseek_api_key`).

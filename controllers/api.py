@@ -560,6 +560,23 @@ class PortalApi(http.Controller):
         name = request.env["aq.portal.document"].sudo().suggest_name(p.get("doc_type"), p.get("counterparty"), p.get("version") or "v1", d)
         return _json({"name": name})
 
+    @portal_route(API + "/ai/assist/<string:resource>/<int:rec_id>", methods=["POST"])
+    def ai_assist_admin(self, user, resource, rec_id):
+        """Copiloto en el portal administrativo (mismo motor DeepSeek)."""
+        cfg = _cfg(resource); _check(cfg, "read", user)
+        rec = request.env[cfg["model"]].sudo().browse(rec_id).exists()
+        if not rec:
+            return _error(_("Registro no encontrado"), 404)
+        b = _body()
+        out = request.env["aq.ops.ai"].sudo().assist(rec, b.get("task", "summarize"), b.get("field"), b.get("text"), b.get("instructions"))
+        _log(user, "action", resource=resource, model=cfg["model"], res_id=rec.id, summary=_("Copiloto: %s") % b.get("task"))
+        return _json({"text": out, "ai": request.env["aq.ops.ai"].sudo().available()})
+
+    @portal_route(API + "/ai/status", methods=["GET"])
+    def ai_status_admin(self, user):
+        st = request.env["aq.ops.ai"].sudo().status(); st.pop("key_hint", None)
+        return _json(st)
+
     # ------------------------------------------------------------------ búsquedas
     @portal_route(API + "/name_search", methods=["GET"])
     def name_search(self, user):

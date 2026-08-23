@@ -55,7 +55,7 @@ OPS_RESOURCES = {
                    "client_hidden": CLIENT_HIDDEN_COMMON, "roles": {"read": EVERYONE, "write": INTERNAL, "create": LEADS, "delete": FULL}},
     "requests": {
         "model": "aq.ops.request", "label": "Solicitudes", "singular": "Solicitud", "section": "trabajo", "order": 20, "attachments": True, "chatter": True, "scope": "project_id", "org_field": "partner_id",
-        "essential": ["name", "description", "partner_id", "project_id", "source", "urgency", "request_type", "scope_decision", "state"],
+        "essential": ["name", "description", "partner_id", "project_id", "source", "urgency", "request_type", "scope_decision", "state", "ai_suggestion"],
         "list": ["name", "partner_id", "project_id", "source", "request_type", "urgency", "scope_decision", "state", "assignee_id", "create_date"],
         "filters": ["state", "request_type", "scope_decision", "urgency", "source", "project_id", "partner_id", "assignee_id"],
         "groups": [{"title": "Solicitud", "fields": ["name", "description", "source", "partner_id", "project_id", "requester_partner_id", "requester_department", "urgency", "client_visible"]},
@@ -65,7 +65,7 @@ OPS_RESOURCES = {
         "actions": [{"name": "action_classify", "label": "Clasificar y determinar", "roles": INTERNAL}, {"name": "action_convert_item", "label": "Convertir en elemento de trabajo", "roles": INTERNAL},
                     {"name": "action_convert_change", "label": "Convertir en cambio de alcance", "roles": INTERNAL}, {"name": "action_convert_incident", "label": "Convertir en incidente", "roles": INTERNAL},
                     {"name": "action_respond", "label": "Responder al solicitante", "roles": INTERNAL}, {"name": "action_reject", "label": "Rechazar", "roles": LEADS}],
-        "client_hidden": CLIENT_HIDDEN_COMMON + ["impact", "assignee_id", "potential_duplicate_ids", "duplicate_of_id", "scope_decision", "first_response_hours"],
+        "client_hidden": CLIENT_HIDDEN_COMMON + ["impact", "assignee_id", "potential_duplicate_ids", "duplicate_of_id", "scope_decision", "first_response_hours", "ai_suggestion"],
         "client_editable": ["name", "description", "urgency", "requester_department"],
         "roles": {"read": EVERYONE, "write": INTERNAL, "create": TEAM + CLIENT, "delete": FULL},
     },

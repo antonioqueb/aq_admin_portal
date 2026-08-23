@@ -66,6 +66,7 @@ class OpsRequest(models.Model):
     client_visible = fields.Boolean(default=True)
     comment_ids = fields.One2many("aq.ops.comment", "request_id", string="Conversación")
     attachments_count = fields.Integer(compute="_compute_att")
+    ai_suggestion = fields.Text(string="Sugerencia del copiloto", readonly=True)
 
     def _compute_att(self):
         Att = self.env["ir.attachment"].sudo()
@@ -88,6 +89,11 @@ class OpsRequest(models.Model):
     def create(self, vals_list):
         recs = super().create(vals_list)
         for r in recs:
+            if r.project_id and self.env["aq.ops.ai"].available() and not self.env.context.get("portal_import"):
+                try:
+                    self.env["aq.ops.ai"].classify_request(r)
+                except Exception:  # noqa
+                    pass
             if r.potential_duplicate_ids:
                 self.env["aq.ops.notification"].notify_role(r.project_id, ["pm"], "accion_requerida", _("Posible solicitud duplicada: %s") % r.name, "requests", r.id)
             self.env["aq.ops.notification"].notify_role(r.project_id, ["pm", "support"], "accion_requerida", _("Nueva solicitud: %s") % r.name, "requests", r.id)

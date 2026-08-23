@@ -576,6 +576,30 @@ class OpsApi(http.Controller):
             st.pop("key_hint", None)
         return _json(st)
 
+    @portal_route(OPS + "/ai/test", methods=["POST"], app="ops")
+    def ai_test(self, user):
+        if _effective_role(user) not in ("platform_owner", "ops_director"):
+            return _error(_("Solo propietario/Dirección de Operaciones"), 403)
+        return _json(self._ai().test_connection())
+
+    @portal_route(OPS + "/ai/models", methods=["POST"], app="ops")
+    def ai_models(self, user):
+        if _effective_role(user) not in ("platform_owner", "ops_director"):
+            return _error(_("Solo propietario/Dirección de Operaciones"), 403)
+        b = _body()
+        return _json(self._ai().pick_latest_model(prefer_reasoning=bool(b.get("reasoning"))))
+
+    @portal_route(OPS + "/ai/assist/<string:resource>/<int:rec_id>", methods=["POST"], app="ops")
+    def ai_assist(self, user, resource, rec_id):
+        cfg = _cfg(resource)
+        rec = _get(cfg, user, rec_id)
+        b = _body()
+        if _effective_role(user) in CLIENT_ROLES and b.get("task") not in ("summarize", "questions", "draft", "improve"):
+            raise AccessError(_("Tarea no disponible para su perfil."))
+        out = self._ai().assist(rec, b.get("task", "summarize"), b.get("field"), b.get("text"), b.get("instructions"))
+        _log(user, "action", resource="ops:" + resource, model=cfg["model"], res_id=rec.id, summary=_("Copiloto: %s") % b.get("task"))
+        return _json({"text": out, "ai": self._ai().available()})
+
     @portal_route(OPS + "/ai/meetings/<int:mid>/summarize", methods=["POST"], app="ops")
     def ai_meeting(self, user, mid):
         m = _get(OPS_RESOURCES["meetings"], user, mid, "write")
