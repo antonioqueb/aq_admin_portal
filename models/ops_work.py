@@ -398,7 +398,7 @@ class OpsComment(models.Model):
         Member = self.env["aq.portal.member"]
         for c in recs:
             names = re.findall(r"@([\wÁÉÍÓÚáéíóúñ]+)", c.body or "")
-            members = Member.search([("name", "ilike", n)], limit=1) if names else Member
+            members = Member
             for n in names:
                 members |= Member.search([("name", "ilike", n)], limit=1)
             if members:
