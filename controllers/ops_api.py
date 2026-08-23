@@ -116,7 +116,7 @@ def _fields(cfg, user):
 def _get(cfg, user, rec_id, op="read"):
     """Autorización a nivel de objeto: el registro debe estar dentro del alcance del usuario."""
     Model = request.env[cfg["model"]].sudo()
-    rec = Model.search([("id", "=", rec_id)] + _scope_domain(cfg, user), limit=1)
+    rec = Model.search([("id", "=", rec_id)] + list(cfg.get("domain", [])) + _scope_domain(cfg, user), limit=1)
     if not rec:
         _log(user, "denied", resource=None, model=cfg["model"], res_id=rec_id, summary="object-level %s" % op)
         raise AccessError(_("Registro fuera de su alcance o inexistente."))
@@ -126,7 +126,7 @@ def _get(cfg, user, rec_id, op="read"):
 def _build_domain(cfg, user, params):
     Model = request.env[cfg["model"]].sudo()
     info = Model.fields_get()
-    dom = _scope_domain(cfg, user)
+    dom = list(cfg.get("domain", [])) + _scope_domain(cfg, user)
     q = params.get("search")
     if q:
         subs = [(f, "ilike", q) for f in ("name", "description", "body", "summary", "title") if f in info and info[f]["type"] in ("char", "text", "html")]

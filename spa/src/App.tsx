@@ -23,6 +23,7 @@ import OpsNotifications from './pages/ops/OpsNotifications'
 import OpsReports from './pages/ops/OpsReports'
 import OpsToday from './pages/ops/OpsToday'
 import OpsAI from './pages/ops/OpsAI'
+import GoogleIntegration from './pages/GoogleIntegration'
 
 function AppGate({ need, children }: { need: 'admin' | 'ops'; children: JSX.Element }) {
   const { user, app, setApp } = useApp()
@@ -58,6 +59,8 @@ export default function App() {
             <Route path="/r/:resource/new" element={<AppGate need="admin"><ResourceForm /></AppGate>} />
             <Route path="/r/:resource/:id" element={<AppGate need="admin"><ResourceForm /></AppGate>} />
             <Route path="/ops" element={<AppGate need="ops"><OpsHome /></AppGate>} />
+            <Route path="/ops/google" element={<AppGate need="ops"><GoogleIntegration /></AppGate>} />
+            <Route path="/google" element={<AppGate need="admin"><GoogleIntegration /></AppGate>} />
             <Route path="/ops/ai" element={<AppGate need="ops"><OpsAI /></AppGate>} />
             <Route path="/ops/today" element={<AppGate need="ops"><OpsToday /></AppGate>} />
             <Route path="/ops/portfolio" element={<AppGate need="ops"><OpsPortfolio /></AppGate>} />

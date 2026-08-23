@@ -200,3 +200,10 @@ migración, soporte, regulado, capacitación, cierre/handoff y creativo/catálog
 * Solicitudes: clasificación, determinación y duplicados sugeridos al crearse (`ai_suggestion`). Correos diarios (alertas y Operaciones) con resumen ejecutivo por IA.
 * Página **Operaciones → Copiloto de IA**: estado, fuente de la clave, prueba de conexión y "Usar el modelo más reciente" (consulta `/models` de DeepSeek y fija el más nuevo en `aq_ops.deepseek_model_auto`; los alias `deepseek-chat` / `deepseek-reasoner` apuntan siempre a la última versión publicada por DeepSeek).
 * Clave: `DEEPSEEK_API_KEY` como variable de entorno (recomendado) o como parámetro del sistema (`DEEPSEEK_API_KEY` o `aq_ops.deepseek_api_key`).
+
+## Google Workspace (Gmail · Calendar · Meet · Drive · Docs · Sheets)
+1. En Google Cloud (proyecto `gen-lang-client-0612937048`) están habilitadas las APIs de Gmail, Calendar, Meet, Drive, Docs y Sheets, y el cliente OAuth "Cliente web 1" tiene como origen `https://odoo.alphaqueb.com` y URI de retorno `https://odoo.alphaqueb.com/aq_portal/google/callback`.
+2. Configura `GOOGLE_CLIENT_ID` (ya viene precargado como parámetro) y `GOOGLE_CLIENT_SECRET` (variable de entorno del servidor o parámetro del sistema; créalo con "Add secret" en el cliente OAuth).
+3. En el portal: **Operaciones → Google Workspace** (o **Administración → Google Workspace**) → *Conectar cuenta de Google* (Dirección / propietario de plataforma). Se guarda el refresh token en `aq.google.account`.
+4. Cron cada 10 minutos (`aq.google.sync.cron_sync`): Calendar → reuniones de proyecto; Meet API → transcripciones a la reunión + propuestas del copiloto; Drive → notas de Gemini; Gmail → bandeja enrutada (`aq.google.message`) según **reglas** (`aq.google.rule`, precargadas) y copiloto DeepSeek: Administración (facturación, cobranza, pagos, legal, RH, prospectos) u Operaciones (solicitudes, incidentes, reuniones). Conversión con un clic o automática por regla; los correos procesados reciben la etiqueta `AlphaQueb/Procesado`.
+5. Salidas: minuta de reunión a Google Docs y portafolio a Google Sheets (carpeta "AlphaOps").

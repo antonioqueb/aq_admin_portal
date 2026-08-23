@@ -106,7 +106,7 @@ export default function Layout() {
             <NavLink to="/calendar">Calendario de obligaciones</NavLink>
             <NavLink to="/routines">Rutina diaria / semanal / mensual</NavLink>
             {schema.sections.filter(s => s.key !== 'inicio').map(s => { const items = bySection(s.key); if (!items.length && s.key !== 'ritmo') return null; return (
-              <div key={s.key}><div className="section">{s.label}</div>{s.key === 'ritmo' && <NavLink to="/reports">Resúmenes ejecutivos</NavLink>}{items.map(r => <NavLink key={r.key} to={'/r/' + r.key}>{r.label}</NavLink>)}</div>) })}
+              <div key={s.key}><div className="section">{s.label}</div>{s.key === 'ritmo' && <NavLink to="/reports">Resúmenes ejecutivos</NavLink>}{s.key === 'admin' && <NavLink to="/google">Google Workspace</NavLink>}{items.map(r => <NavLink key={r.key} to={'/r/' + r.key}>{r.label}</NavLink>)}</div>) })}
           </>)}
           {isOps && external && (<>
             <div className="section">Su organización</div>
@@ -144,6 +144,7 @@ export default function Layout() {
             <NavLink to="/ops/notifications">Centro de notificaciones</NavLink>
             {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/reports">Reportes operativos</NavLink>}
             <NavLink to="/ops/ai">✦ Copiloto de IA</NavLink>
+            <NavLink to="/ops/google">Google Workspace</NavLink>
             {schema.sections.map(s => { const items = bySection(s.key); if (!items.length) return null; return (
               <div key={s.key}><div className="section">{s.label}</div>{items.map(r => <NavLink key={r.key} to={'/ops/r/' + r.key}>{r.label}</NavLink>)}</div>) })}
           </>)}

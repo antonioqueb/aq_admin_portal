@@ -547,6 +547,26 @@ RESOURCES = {
         "groups": [{"title": "Seguimiento", "fields": ["date", "kind", "channel", "contact", "note", "result", "next_action", "next_date", "promised_date", "member_id"]}],
         "roles": {"read": ROLE_ALL, "write": ROLE_TEAM, "create": ROLE_TEAM, "delete": ROLE_WRITE},
     },
+    "google_inbox": {
+        "model": "aq.google.message", "label": "Bandeja de correo y reuniones (Google)", "singular": "Mensaje", "section": "admin", "icon": "mail", "order": 5, "attachments": False,
+        "domain": [("app", "=", "admin")],
+        "list": ["date", "source", "subject", "sender", "category", "partner_id", "routed_by", "state", "res_label"],
+        "filters": ["state", "category", "source", "routed_by", "partner_id"],
+        "groups": [{"title": "Mensaje", "fields": ["subject", "sender", "recipients", "date", "source", "link", "attachment_names", "labels"]},
+                   {"title": "Enrutamiento", "fields": ["app", "category", "routed_by", "rule_id", "partner_id", "project_id", "ai_summary", "ai_action", "state", "res_label"]},
+                   {"title": "Contenido", "fields": ["body"]}],
+        "actions": [{"name": "action_to_admin_agreement", "label": "→ Pendiente / acuerdo", "roles": ROLE_WRITE}, {"name": "action_to_admin_receivable", "label": "→ Seguimiento de cobranza", "roles": ROLE_WRITE},
+                    {"name": "action_to_admin_payable", "label": "→ Cuenta por pagar", "roles": ROLE_WRITE}, {"name": "action_ignore", "label": "Ignorar", "roles": ROLE_WRITE}],
+        "roles": {"read": ROLE_WRITE, "write": ROLE_WRITE, "create": [], "delete": ["direccion"]},
+    },
+    "google_rules": {
+        "model": "aq.google.rule", "label": "Reglas de enrutamiento de correo", "singular": "Regla", "section": "admin", "order": 6,
+        "list": ["sequence", "name", "match_from", "match_subject", "match_keywords", "target_app", "target_type", "auto_convert", "active"],
+        "filters": ["target_app", "target_type", "active"],
+        "groups": [{"title": "Regla", "fields": ["name", "sequence", "active", "notes"]}, {"title": "Coincidencia", "fields": ["match_from", "match_to", "match_subject", "match_keywords", "match_label"]},
+                   {"title": "Destino", "fields": ["target_app", "target_type", "auto_convert", "project_id", "partner_id"]}],
+        "roles": {"read": ROLE_WRITE, "write": ["direccion"], "create": ["direccion"], "delete": ["direccion"]},
+    },
     "members": {
         "model": "aq.portal.member", "label": "Integrantes del equipo", "singular": "Integrante", "section": "admin", "icon": "user", "order": 20,
         "list": ["name", "email", "member_type", "position", "is_direction", "open_agreement_count", "overdue_agreement_count", "active"],
@@ -570,7 +590,7 @@ RESOURCES = {
 }
 
 # Modelos a los que se permite buscar por nombre (selectores many2one)
-NAME_SEARCH_MODELS = {r["model"] for r in RESOURCES.values()} | {"res.partner", "res.currency", "account.move", "aq.ops.project"}
+NAME_SEARCH_MODELS = {r["model"] for r in RESOURCES.values()} | {"res.partner", "res.currency", "account.move", "aq.ops.project", "aq.google.rule"}
 NAME_SEARCH_DOMAINS = {"account.move": [("move_type", "in", ("out_invoice", "out_refund"))]}
 
 

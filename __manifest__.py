@@ -21,6 +21,7 @@
         "data/ops_templates.xml",
         "data/ops_automations.xml",
         "data/ops_seed.xml",
+        "data/google.xml",
         "views/portal_user_views.xml",
         "views/backend_views.xml",
         "views/menus.xml",

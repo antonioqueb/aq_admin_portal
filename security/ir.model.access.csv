@@ -115,3 +115,6 @@ access_model_aq_ops_automation_manager,aq.ops.automation manager,aq_admin_portal
 access_model_aq_ops_automation_log_manager,aq.ops.automation.log manager,aq_admin_portal.model_aq_ops_automation_log,aq_admin_portal.group_aq_portal_manager,1,1,1,1
 access_model_aq_ops_event_manager,aq.ops.event manager,aq_admin_portal.model_aq_ops_event,aq_admin_portal.group_aq_portal_manager,1,1,1,1
 access_model_aq_ops_integration_manager,aq.ops.integration manager,aq_admin_portal.model_aq_ops_integration,aq_admin_portal.group_aq_portal_manager,1,1,1,1
+access_model_aq_google_account_manager,aq.google.account manager,aq_admin_portal.model_aq_google_account,aq_admin_portal.group_aq_portal_manager,1,1,1,1
+access_model_aq_google_rule_manager,aq.google.rule manager,aq_admin_portal.model_aq_google_rule,aq_admin_portal.group_aq_portal_manager,1,1,1,1
+access_model_aq_google_message_manager,aq.google.message manager,aq_admin_portal.model_aq_google_message,aq_admin_portal.group_aq_portal_manager,1,1,1,1

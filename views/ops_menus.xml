@@ -43,4 +43,11 @@
     <menuitem id="menu_aq_ops_breakglass" name="Accesos extraordinarios" parent="menu_aq_ops_root" action="action_aq_ops_breakglass" sequence="200"/>
     <record id="action_aq_ops_notification" model="ir.actions.act_window"><field name="name">Notificaciones</field><field name="res_model">aq.ops.notification</field><field name="view_mode">list,form</field></record>
     <menuitem id="menu_aq_ops_notification" name="Notificaciones" parent="menu_aq_ops_root" action="action_aq_ops_notification" sequence="210"/>
+    <record id="action_aq_google_account" model="ir.actions.act_window"><field name="name">Google · cuentas conectadas</field><field name="res_model">aq.google.account</field><field name="view_mode">list,form</field></record>
+    <record id="action_aq_google_rule" model="ir.actions.act_window"><field name="name">Google · reglas de enrutamiento</field><field name="res_model">aq.google.rule</field><field name="view_mode">list,form</field></record>
+    <record id="action_aq_google_message" model="ir.actions.act_window"><field name="name">Google · bandeja enrutada</field><field name="res_model">aq.google.message</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_google" name="Google Workspace" parent="menu_aq_ops_root" sequence="300"/>
+    <menuitem id="menu_aq_google_account" name="Cuentas conectadas" parent="menu_aq_google" action="action_aq_google_account" sequence="10"/>
+    <menuitem id="menu_aq_google_rule" name="Reglas de enrutamiento" parent="menu_aq_google" action="action_aq_google_rule" sequence="20"/>
+    <menuitem id="menu_aq_google_message" name="Bandeja enrutada" parent="menu_aq_google" action="action_aq_google_message" sequence="30"/>
 </odoo>
