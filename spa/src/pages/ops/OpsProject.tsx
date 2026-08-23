@@ -27,7 +27,7 @@ export default function OpsProject() {
       </div>
       {ai && <div className="copilot"><h4>Copiloto · propuesta (no vinculante)</h4><div style={{ whiteSpace: 'pre-wrap' }}>{ai}</div><div className="disclaimer">La IA solo propone: no aprueba, no cambia alcance ni fechas, no acepta entregables.</div></div>}
       <div className="tabs"><button className={tab === 'resumen' ? 'active' : ''} onClick={() => setTab('resumen')}>Resumen (2 minutos)</button><button className={tab === 'trabajo' ? 'active' : ''} onClick={() => setTab('trabajo')}>Trabajo · {d.counts.open} abiertos</button></div>
-      {tab === 'trabajo' && <WorkViews items={d.board} sprints={d.sprints} reload={load} view={view} setView={v => { setView(v); localStorage.setItem('aq_board_view', v) }} projectMode />}
+      {tab === 'trabajo' && <WorkViews items={d.board} sprints={d.sprints} reload={load} view={view} setView={v => { setView(v); localStorage.setItem('aq_board_view', v) }} projectMode projectId={p.id} />}
       {tab === 'resumen' && (<>
         <div className="grid cols-4" style={{ marginBottom: 14 }}>
           {!external && <div className={'kpi ' + (p.hours.pct >= 85 ? 'err' : p.hours.pct >= 70 ? 'warn' : 'ok')}><div className="v">{p.hours.pct}%</div><div className="l">Bolsa autorizada: {p.hours.consumed} / {p.hours.authorized} h · restan {p.hours.remaining} h · aprobadas {p.hours.approved} h</div></div>}

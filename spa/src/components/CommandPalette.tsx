@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context'
+import { setActiveProject } from '../project'
 
-interface Item { label: string; hint: string; to: string; kind: 'nav' | 'rec' }
+interface Item { label: string; hint: string; to: string; kind: 'nav' | 'rec' | 'proj'; project?: { id: number; name: string } | null }
 const SEARCH_MODELS_ADMIN: [string, string, string][] = [
   ['aq.portal.project', 'projects', 'Proyecto'], ['aq.portal.agreement', 'agreements', 'Pendiente'],
   ['aq.portal.receivable', 'receivables', 'Cuenta por cobrar'], ['aq.portal.prospect', 'prospects', 'Prospecto'],
@@ -19,6 +20,8 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
   const nav = useNavigate()
   const [q, setQ] = useState('')
   const [recs, setRecs] = useState<Item[]>([])
+  const [projs, setProjs] = useState<Item[]>([])
+  useEffect(() => { if (open && app === 'ops') rapi.list('projects', { limit: 200, fields: 'name', order: 'name asc' }).then(r => setProjs([{ label: 'Ver todos los proyectos', hint: 'Proyecto activo', to: '', kind: 'proj', project: null }, ...r.records.map((p: any) => ({ label: `Proyecto activo: ${p.name}`, hint: 'Proyecto activo', to: '', kind: 'proj' as const, project: { id: p.id, name: p.name } }))])).catch(() => {}) }, [open, app, rapi])
   const [idx, setIdx] = useState(0)
   const inp = useRef<HTMLInputElement>(null)
   const basePath = base
@@ -52,8 +55,8 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
     return () => clearTimeout(t)
   }, [q, open, schema, app, rapi, basePath])
   if (!open) return null
-  const items = [...navItems.filter(i => !q || norm(i.label + ' ' + i.hint).includes(norm(q))).slice(0, 12), ...recs]
-  const go = (it: Item) => { onClose(); nav(it.to) }
+  const items = [...projs.filter(i => q && norm(i.label).includes(norm(q))).slice(0, 6), ...navItems.filter(i => !q || norm(i.label + ' ' + i.hint).includes(norm(q))).slice(0, 12), ...recs]
+  const go = (it: Item) => { onClose(); if (it.kind === 'proj') { setActiveProject(it.project || null); return } nav(it.to) }
   const key = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setIdx(i => Math.min(i + 1, items.length - 1)) }
     if (e.key === 'ArrowUp') { e.preventDefault(); setIdx(i => Math.max(i - 1, 0)) }

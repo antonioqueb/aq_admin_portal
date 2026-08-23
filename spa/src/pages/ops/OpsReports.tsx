@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { addDays, ops, today } from '../../api'
 import { useApp } from '../../context'
+import { useActiveProject } from '../../project'
 
 const K = ({ v, l, cls }: { v: any; l: string; cls?: string }) => <div className={'kpi ' + (cls || '')}><div className="v">{v}</div><div className="l">{l}</div></div>
 
@@ -8,12 +9,13 @@ export default function OpsReports() {
   const { toast } = useApp()
   const [from, setFrom] = useState(addDays(today(), -30)); const [to, setTo] = useState(today())
   const [k, setK] = useState<any>(null)
-  useEffect(() => { ops.kpis(from, to).then(setK).catch((e: any) => toast(e.message, 'err')) }, [from, to, toast])
+  const active = useActiveProject()
+  useEffect(() => { ops.kpis(from, to, active?.id).then(setK).catch((e: any) => toast(e.message, 'err')) }, [from, to, toast, active])
   if (!k) return <div className="empty">Calculando indicadores…</div>
   const w = (v: number, bad: number, inv = false) => (inv ? v > bad : v < bad) ? 'warn' : 'ok'
   return (
     <div>
-      <div className="toolbar"><div><h1>Reportes operativos</h1><div style={{ color: 'var(--muted)', fontSize: 12 }}>Medimos flujo, predictibilidad, calidad, valor aceptado y tiempo de respuesta — no cantidad de tareas.</div></div><span className="spacer" /><input type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ width: 150 }} /><input type="date" value={to} onChange={e => setTo(e.target.value)} style={{ width: 150 }} /></div>
+      <div className="toolbar"><div><h1>Reportes operativos{active ? ` · ${active.name}` : ''}</h1><div style={{ color: 'var(--muted)', fontSize: 12 }}>Medimos flujo, predictibilidad, calidad, valor aceptado y tiempo de respuesta — no cantidad de tareas.</div></div><span className="spacer" /><input type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ width: 150 }} /><input type="date" value={to} onChange={e => setTo(e.target.value)} style={{ width: 150 }} /></div>
       <h3>Entrega y plan</h3>
       <div className="grid cols-4" style={{ marginBottom: 14 }}>
         <K v={k.milestone_compliance_pct + '%'} l={`Cumplimiento de hitos (${k.milestones_validated} validados)`} cls={w(k.milestone_compliance_pct, 80)} />

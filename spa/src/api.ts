@@ -52,7 +52,7 @@ export function makeResourceApi(prefix: string) {
     note: (resource: string, id: number, body: string, clientVisible?: boolean) => call('POST', `${P}/r/${resource}/${id}/note`, { body, client_visible: clientVisible }),
     attachments: (resource: string, id: number) => call('GET', `${P}/r/${resource}/${id}/attachments`),
     upload: (resource: string, id: number, files: FileList | File[]) => { const fd = new FormData(); Array.from(files).forEach(f => fd.append('file', f)); return call('POST', `${P}/r/${resource}/${id}/attachments`, fd) },
-    nameSearch: (model: string, q: string) => call('GET', `${P}/name_search` + qs({ model, q })),
+    nameSearch: (model: string, q: string, limit?: number) => call('GET', `${P}/name_search` + qs({ model, q, limit })),
     schema: () => call('GET', `${P}/schema`),
     exportUrl: (resource: string, params: Record<string, any> = {}) => `${API}${P}/export/${resource}` + qs({ ...params, token: getToken() }),
   }
@@ -64,7 +64,8 @@ export const ops = {
   portfolio: () => call('GET', '/ops/portfolio'),
   command: (id: number) => call('GET', `/ops/projects/${id}/command`),
   clientHome: () => call('GET', '/ops/client/home'),
-  kpis: (from?: string, to?: string) => call('GET', '/ops/kpis' + qs({ from, to })),
+  kpis: (from?: string, to?: string, project_id?: number) => call('GET', '/ops/kpis' + qs({ from, to, project_id })),
+  quickAdd: (vals: any) => call('POST', '/ops/r/items', vals),
   move: (id: number, vals: any) => call('POST', `/ops/items/${id}/move`, vals),
   timerStart: (vals: any) => call('POST', '/ops/timer/start', vals),
   timerStop: () => call('POST', '/ops/timer/stop'),

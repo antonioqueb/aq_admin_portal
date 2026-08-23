@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { fmtDate, ops } from '../../api'
 import { useApp } from '../../context'
 import { selLabel } from '../../components/Field'
+import { useActiveProject } from '../../project'
 
 const DET: [string, string][] = [['en_alcance', 'Incluida en el alcance'], ['soporte', 'Pertenece a soporte'], ['estimacion', 'Requiere estimación'], ['aprobacion_comercial', 'Necesita aprobación comercial'], ['urgente', 'Urgente por afectación productiva'], ['devolver', 'Devolver por falta de información']]
 
@@ -15,7 +16,8 @@ export default function OpsRequests() {
   const [edit, setEdit] = useState<any>({})
   const [ai, setAi] = useState<any>(null)
   const res = schema?.resources.requests
-  const load = useCallback(() => rapi.list('requests', { limit: 200, order: 'create_date desc', filters: state === 'open' ? { state: ['nueva', 'clasificada', 'analisis', 'esperando_info'] } : state === 'all' ? {} : { state } }).then(r => setRows(r.records)).catch((e: any) => toast(e.message, 'err')), [rapi, state, toast])
+  const active = useActiveProject()
+  const load = useCallback(() => rapi.list('requests', { limit: 200, order: 'create_date desc', filters: state === 'open' ? { state: ['nueva', 'clasificada', 'analisis', 'esperando_info'] } : state === 'all' ? {} : { state }, domain: active ? [['project_id', '=', active.id]] : undefined }).then(r => setRows(r.records)).catch((e: any) => toast(e.message, 'err')), [rapi, state, toast, active])
   useEffect(() => { load() }, [load])
   const openReq = async (r: any) => { const f = await rapi.read('requests', r.id); setSel(f.record); setEdit({ request_type: f.record.request_type, scope_decision: f.record.scope_decision, impact: f.record.impact, missing_info: f.record.missing_info, response: f.record.response, project_id: f.record.project_id }); setAi(null) }
   const save = async () => { try { const r = await rapi.write('requests', sel.id, edit); setSel(r.record); toast('Guardado', 'ok'); load() } catch (e: any) { toast(e.message, 'err') } }
@@ -24,9 +26,9 @@ export default function OpsRequests() {
   if (!res) return <div className="empty">Sin acceso</div>
   return (
     <div>
-      <div className="toolbar"><div><h1>Bandeja de solicitudes</h1><div style={{ color: 'var(--muted)', fontSize: 12 }}>Un solo embudo: cliente, empleado del cliente, reunión, correo, consultor, soporte, Dirección, incidente en producción, revisión de calidad.</div></div><span className="spacer" />
+      <div className="toolbar"><div><h1>Bandeja de solicitudes{active ? ` · ${active.name}` : ''}</h1><div style={{ color: 'var(--muted)', fontSize: 12 }}>Un solo embudo: cliente, empleado del cliente, reunión, correo, consultor, soporte, Dirección, incidente en producción, revisión de calidad.</div></div><span className="spacer" />
         <select value={state} onChange={e => setState(e.target.value)} style={{ width: 'auto' }}><option value="open">Abiertas</option><option value="convertida">Convertidas</option><option value="respondida">Respondidas</option><option value="rechazada">Rechazadas</option><option value="remitida_admin">Remitidas a Administración</option><option value="all">Todas</option></select>
-        <button className="btn" onClick={() => nav('/ops/r/requests/new')}>+ Nueva solicitud</button></div>
+        <button className="btn" onClick={() => nav('/ops/r/requests/new' + (active ? `?d.project_id=${active.id}&n.project_id=${encodeURIComponent(active.name)}` : ''))}>+ Nueva solicitud</button></div>
       <div className="two">
         <div className="card tight">
           <div className="table-wrap"><table className="list"><thead><tr><th>Solicitud</th><th>Organización</th><th>Origen</th><th>Clasificación</th><th>Urgencia</th><th>Estado</th><th>Fecha</th></tr></thead>

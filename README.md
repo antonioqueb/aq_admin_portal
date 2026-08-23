@@ -185,3 +185,12 @@ migración, soporte, regulado, capacitación, cierre/handoff y creativo/catálog
 * **Vistas guardadas** en servidor (`aq.ops.saved.view`, personales o compartidas).
 * **Bitácora inmutable** (`aq.portal.audit.log` no admite edición ni borrado manual) y **políticas de retención** (`aq_ops.retention_days_*`).
 * Proyectos semilla con plantilla aplicada: Stonia, SAI, Hexágonos, One of a Kind y Getting Ready.
+
+## Experiencia de uso (AlphaOps)
+* **Proyecto activo global** (sidebar, barra superior, paleta ⌘K, tecla `P`): filtra tablero, listados, solicitudes, Mi trabajo, tiempo y reportes; precarga el proyecto al crear. "Todos los proyectos" para la vista global.
+* **Panel lateral (peek)** al tocar un elemento: esenciales editables, acciones de un toque (iniciar/terminar/bloquear/temporizador), subtareas tipo checklist y comentarios, sin salir del Kanban.
+* **Edición en línea** de estado, responsable y fecha en Kanban y Lista; **acciones masivas** en Lista; **alta rápida** con plantillas por tipo (tarea, historia, defecto, entregable, requerimiento).
+* **Ficha simplificada**: esenciales primero y "Más detalles" colapsado (elementos, solicitudes, incidentes, RAID).
+* **Hoy** (`/ops/today`, tecla `H`): agenda móvil con botones táctiles.
+* **Filtros guardados** por persona o equipo en cada listado; **notificaciones accionables** (aprobar, desbloquear, aprobar tiempo/decisión/liberación, incorporar cambio).
+* Atajos: `N` nuevo, `B` tablero, `M` mi trabajo, `H` hoy, `P` proyecto, `/` buscar.

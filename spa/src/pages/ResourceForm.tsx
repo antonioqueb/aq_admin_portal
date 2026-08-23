@@ -27,7 +27,7 @@ export default function ResourceForm() {
       sp.forEach((v, k) => { if (k.startsWith('d.')) { const fn = k.slice(2); const f = res.fields[fn]; if (f?.type === 'many2one') d[fn] = { id: Number(v), name: sp.get('n.' + fn) || '#' + v }; else d[fn] = v } })
       setRec(d); setDirty(d); return
     }
-    rapi.read(resource, Number(id)).then(r => { setRec(r.record); setDirty({}) }).catch(e => { toast(e.message, 'err'); nav(`${base}/r/${resource}`) })
+    rapi.read(resource, Number(id)).then(r => { setRec(r.record); setDirty({}); setTab(t => t === 'form' && res.tabs.length ? res.tabs[0].field : t) }).catch(e => { toast(e.message, 'err'); nav(`${base}/r/${resource}`) })
   }, [res, resource, id, isNew, sp, toast, nav, rapi, base])
   useEffect(() => { load() }, [load])
   if (!res) return <div className="empty">Recurso no disponible para su rol.</div>
@@ -83,13 +83,24 @@ export default function ResourceForm() {
       {!isNew && app === 'admin' && <AdminExtras resource={resource} record={rec} />}
       {!isNew && (
         <div className="tabs">
-          <button className={tab === 'form' ? 'active' : ''} onClick={() => setTab('form')}>Ficha</button>
           {res.tabs.map(t => <button key={t.field} className={tab === t.field ? 'active' : ''} onClick={() => setTab(t.field)}>{t.label} ({(rec[t.field] || []).length})</button>)}
           {res.attachments && <button className={tab === '_att' ? 'active' : ''} onClick={() => setTab('_att')}>Archivos y evidencias</button>}
           <button className={tab === '_hist' ? 'active' : ''} onClick={() => setTab('_hist')}>Historial y notas</button>
+          <button className={tab === 'form' ? 'active' : ''} onClick={() => setTab('form')} style={{ marginLeft: 'auto' }}>Ficha</button>
         </div>
       )}
-      {tab === 'form' && (
+      {tab === 'form' && res.essential && res.essential.length > 0 && (
+        <div>
+          <div className="card"><h3>Esenciales</h3><div className="grid cols-2">{res.essential.filter(f => res.fields[f]).map(f => <div key={f} style={{ gridColumn: ['description', 'acceptance_criteria', 'name'].includes(f) ? '1 / -1' : undefined }}><FieldRow f={res.fields[f]} value={value(f)} onChange={v => set(f, v)} canDirection={canDirection} disabled={!canWrite} /></div>)}</div></div>
+          <details className="more"><summary>Más detalles</summary>
+            <div className="grid cols-2" style={{ marginTop: 12 }}>
+              {res.groups.map(g => { const fs = g.fields.filter(f => res.fields[f] && res.fields[f].type !== 'one2many' && !res.essential!.includes(f)); return fs.length ? <div className="card" key={g.title}><h3>{g.title}</h3>{fs.map(f => <FieldRow key={f} f={res.fields[f]} value={value(f)} onChange={v => set(f, v)} canDirection={canDirection} disabled={!canWrite} />)}</div> : null })}
+              {others.filter(f => !res.essential!.includes(f)).length > 0 && <div className="card"><h3>Otros</h3>{others.filter(f => !res.essential!.includes(f)).map(f => <FieldRow key={f} f={res.fields[f]} value={value(f)} onChange={v => set(f, v)} canDirection={canDirection} disabled={!canWrite} />)}</div>}
+            </div>
+          </details>
+        </div>
+      )}
+      {tab === 'form' && !(res.essential && res.essential.length > 0) && (
         <div className="grid cols-2">
           {res.groups.map(g => (
             <div className="card" key={g.title}>

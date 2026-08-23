@@ -194,7 +194,8 @@ class OpsApi(http.Controller):
                                      "groups": [{"title": g["title"], "fields": [f for f in g["fields"] if f in fo]} for g in cfg.get("groups", [])],
                                      "tabs": [t for t in cfg.get("tabs", []) if t["resource"] in OPS_RESOURCES and role in OPS_RESOURCES[t["resource"]]["roles"]["read"]],
                                      "attachments": cfg.get("attachments", False), "chatter": cfg.get("chatter", False), "sensitive": False,
-                                     "actions": [a for a in cfg.get("actions", []) if role in a.get("roles", [])], "can": can, "fields": fo}
+                                     "actions": [a for a in cfg.get("actions", []) if role in a.get("roles", [])], "can": can, "fields": fo,
+                                     "essential": [f for f in cfg.get("essential", []) if f in fo]}
         return _json(out)
 
     # ------------------------------------------------------------------ CRUD genérico con alcance
@@ -345,7 +346,7 @@ class OpsApi(http.Controller):
             dom = ["|", ("id", "=", user.organization_id.id), ("parent_id", "=", user.organization_id.id)]  # nunca cruzar clientes
         if "active" in Model._fields:
             dom.append(("active", "=", True))
-        res = Model.name_search(request.params.get("q") or "", args=dom, limit=20)
+        res = Model.name_search(request.params.get("q") or "", args=dom, limit=min(int(request.params.get("limit", 20)), 200))
         return _json({"results": [{"id": r[0], "name": r[1]} for r in res]})
 
     @portal_route(OPS + "/export/<string:resource>", methods=["GET"], app="ops")
@@ -402,7 +403,11 @@ class OpsApi(http.Controller):
         p = request.params
         df = fields.Date.to_date(p.get("from")) if p.get("from") else None
         dt = fields.Date.to_date(p.get("to")) if p.get("to") else None
-        return _json(request.env["aq.ops.engine"].sudo().ops_kpis(self._pdom(user), df, dt))
+        dom = self._pdom(user)
+        if p.get("project_id"):
+            _get(OPS_RESOURCES["projects"], user, int(p["project_id"]))
+            dom = dom + [("project_id", "=", int(p["project_id"]))]
+        return _json(request.env["aq.ops.engine"].sudo().ops_kpis(dom, df, dt))
 
     # ------------------------------------------------------------------ tablero / items
     @portal_route(OPS + "/items/<int:iid>/move", methods=["POST"], app="ops")

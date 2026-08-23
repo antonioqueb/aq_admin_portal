@@ -291,26 +291,26 @@ class OpsEngine(models.AbstractModel):
             "depends_on_me": [ser(i) for i in Item.search(base + [("depends_on_ids.assignee_id", "=", m.id), ("assignee_id", "!=", m.id)])] if m else [],
         }
         projects = self.env["aq.ops.project"].search(project_domain_to_project(project_domain) + [("stage", "in", ACTIVE_STAGES)])
-        out["next_actions"] = [{"id": p.id, "project": p.name, "next_action": p.next_action, "date": str(p.next_action_date or ""), "owner": p.next_action_owner_id.name, "missing": not p.has_next_action}
+        out["next_actions"] = [{"id": p.id, "project_id": p.id, "project": p.name, "next_action": p.next_action, "date": str(p.next_action_date or ""), "owner": p.next_action_owner_id.name, "missing": not p.has_next_action}
                                for p in projects if (m and p.next_action_owner_id == m) or not p.has_next_action][:30]
         # aprobaciones
         approvals = []
         if user.ops_role in ("client_sponsor", "client_po", "client_validator"):
             for a in self.env["aq.ops.acceptance"].search([("decision", "=", "pendiente")] + project_domain):
                 if not user.department or not a.department or a.department.lower() == user.department.lower():
-                    approvals.append({"id": a.id, "kind": "acceptance", "name": a.item_id.name or a.milestone_id.name, "project": a.project_id.name, "due": str(a.due_date or "")})
+                    approvals.append({"id": a.id, "kind": "acceptance", "name": a.item_id.name or a.milestone_id.name, "project": a.project_id.name, "project_id": a.project_id.id, "due": str(a.due_date or "")})
         if user.ops_role in ("pm", "ops_director", "platform_owner", "tech_lead", "functional_lead"):
             for d in self.env["aq.ops.decision"].search([("state", "=", "propuesta")] + project_domain):
-                approvals.append({"id": d.id, "kind": "decision", "name": d.name, "project": d.project_id.name})
+                approvals.append({"id": d.id, "kind": "decision", "name": d.name, "project": d.project_id.name, "project_id": d.project_id.id})
             for r in self.env["aq.ops.release"].search([("state", "=", "candidata"), ("env_type", "=", "prod")] + project_domain):
-                approvals.append({"id": r.id, "kind": "release", "name": r.name, "project": r.project_id.name})
+                approvals.append({"id": r.id, "kind": "release", "name": r.name, "project": r.project_id.name, "project_id": r.project_id.id})
             for t in self.env["aq.ops.timesheet"].search([("state", "=", "enviado")] + project_domain, limit=50):
-                approvals.append({"id": t.id, "kind": "timesheet", "name": "%s · %.1f h · %s" % (t.member_id.name, t.hours, t.date), "project": t.project_id.name})
+                approvals.append({"id": t.id, "kind": "timesheet", "name": "%s · %.1f h · %s" % (t.member_id.name, t.hours, t.date), "project": t.project_id.name, "project_id": t.project_id.id})
         out["approvals"] = approvals
-        out["requests"] = [{"id": r.id, "name": r.name, "org": r.partner_id.name, "state": r.state, "urgency": r.urgency, "age_days": (today - r.create_date.date()).days}
+        out["requests"] = [{"id": r.id, "name": r.name, "org": r.partner_id.name, "project_id": r.project_id.id, "state": r.state, "urgency": r.urgency, "age_days": (today - r.create_date.date()).days}
                            for r in self.env["aq.ops.request"].search([("state", "in", ("nueva", "clasificada", "analisis"))] + project_domain, limit=30)] if user.ops_role not in ("client_requester",) else []
         out["mentions"] = [{"id": n.id, "title": n.title, "resource": n.resource, "res_id": n.res_id, "date": str(n.create_date)} for n in self.env["aq.ops.notification"].search([("user_id", "=", user.id), ("category", "=", "mencion"), ("read", "=", False)], limit=20)]
-        out["meetings"] = [{"id": mt.id, "name": mt.name, "date": str(mt.date), "project": mt.project_id.name} for mt in self.env["aq.ops.meeting"].search([("date", ">=", fields.Datetime.now()), ("state", "=", "programada")] + project_domain, order="date", limit=10)]
+        out["meetings"] = [{"id": mt.id, "name": mt.name, "date": str(mt.date), "project": mt.project_id.name, "project_id": mt.project_id.id} for mt in self.env["aq.ops.meeting"].search([("date", ">=", fields.Datetime.now()), ("state", "=", "programada")] + project_domain, order="date", limit=10)]
         logged = sum(self.env["aq.ops.timesheet"].search([("member_id", "=", m.id), ("date", ">=", today - timedelta(days=today.weekday())), ("date", "<=", today)]).mapped("hours")) if m else 0
         out["hours_week"] = logged
         out["hours_pending"] = max((today.weekday() + 1) * 8 - logged, 0) if m else 0
@@ -319,9 +319,9 @@ class OpsEngine(models.AbstractModel):
             run = self.env["aq.ops.timesheet"].search([("member_id", "=", m.id), ("running", "=", True)], limit=1)
             if run:
                 out["running_timer"] = {"id": run.id, "item": run.item_id.name, "project": run.project_id.name, "since": str(run.timer_start)}
-        out["risks"] = [{"id": r.id, "name": r.name, "type": r.raid_type, "project": r.project_id.name, "severity": r.severity, "due": str(r.due_date or "")}
+        out["risks"] = [{"id": r.id, "name": r.name, "type": r.raid_type, "project": r.project_id.name, "project_id": r.project_id.id, "severity": r.severity, "due": str(r.due_date or "")}
                         for r in self.env["aq.ops.raid"].search([("state", "in", ("abierto", "mitigando", "materializado"))] + project_domain + ([("owner_id", "=", m.id)] if m and user.ops_role not in ("ops_director", "platform_owner") else []), limit=20)]
-        out["incidents"] = [{"id": i.id, "name": i.name, "severity": i.severity, "step": i.step, "project": i.project_id.name, "sla_breached": i.sla_breached}
+        out["incidents"] = [{"id": i.id, "name": i.name, "severity": i.severity, "step": i.step, "project": i.project_id.name, "project_id": i.project_id.id, "sla_breached": i.sla_breached}
                             for i in self.env["aq.ops.incident"].search([("step", "!=", "cerrado")] + project_domain + ([("owner_id", "=", m.id)] if m and user.ops_role not in ("ops_director", "platform_owner", "support") else []), limit=20)]
         out["notifications_unread"] = self.env["aq.ops.notification"].search_count([("user_id", "=", user.id), ("read", "=", False)])
         return out

@@ -3,15 +3,17 @@ import { Link } from 'react-router-dom'
 import { fmtDate, ops, today } from '../../api'
 import { useApp } from '../../context'
 import Many2one from '../../components/Many2one'
+import { useActiveProject } from '../../project'
 
 const CATS: [string, string][] = [['analisis', 'Análisis'], ['configuracion', 'Configuración'], ['desarrollo', 'Desarrollo'], ['pruebas', 'Pruebas'], ['reunion', 'Reunión'], ['soporte', 'Soporte'], ['capacitacion', 'Capacitación'], ['documentacion', 'Documentación'], ['gestion', 'Gestión'], ['no_planificado', 'No planificado'], ['interno', 'Interno']]
 const weekOf = (d: string) => { const x = new Date(d + 'T00:00:00'); const day = (x.getDay() + 6) % 7; x.setDate(x.getDate() - day + 3); const y = x.getFullYear(); const jan4 = new Date(y, 0, 4); const w = 1 + Math.round(((x.getTime() - jan4.getTime()) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7); return `${y}-W${String(w).padStart(2, '0')}` }
 
 export default function OpsTime() {
   const { rapi, toast, user } = useApp()
+  const active = useActiveProject()
   const [week, setWeek] = useState(weekOf(today()))
   const [d, setD] = useState<any>(null)
-  const [form, setForm] = useState<any>({ date: today(), hours: 1, category: 'desarrollo', billable: true, description: '', project_id: null, item_id: null, justification: '' })
+  const [form, setForm] = useState<any>({ date: today(), hours: 1, category: 'desarrollo', billable: true, description: '', project_id: active ? { id: active.id, name: active.name } : null, item_id: null, justification: '' })
   const [timerItem, setTimerItem] = useState<any>(null)
   const [running, setRunning] = useState<any>(null)
   const [fc, setFc] = useState<any[]>([])
@@ -24,11 +26,12 @@ export default function OpsTime() {
   const approve = async () => { try { const r = await ops.approveWeek(week); toast(`${r.approved} registros aprobados · horas facturables enviadas a Administración`, 'ok'); load() } catch (e: any) { toast(e.message, 'err') } }
   const canApprove = ['platform_owner', 'ops_director', 'pm', 'functional_lead', 'tech_lead'].includes(user?.ops_role || '')
   if (!d) return <div className="empty">Cargando…</div>
-  const total = d.entries.reduce((s: number, e: any) => s + e.hours, 0)
-  const byDay: Record<string, any[]> = {}; d.entries.forEach((e: any) => { (byDay[e.date] = byDay[e.date] || []).push(e) })
+  const entries = active ? d.entries.filter((e: any) => e.project_id?.id === active.id) : d.entries
+  const total = entries.reduce((s: number, e: any) => s + e.hours, 0)
+  const byDay: Record<string, any[]> = {}; entries.forEach((e: any) => { (byDay[e.date] = byDay[e.date] || []).push(e) })
   return (
     <div>
-      <div className="hero"><div><div className="tag">Tiempo real y capacidad futura</div><h1>Tiempo y capacidad</h1><div className="pulse">Semana {week} · {fmtDate(d.start)} → {fmtDate(d.end)} · {total.toFixed(1)} h registradas</div></div>
+      <div className="hero"><div><div className="tag">Tiempo real y capacidad futura</div><h1>Tiempo y capacidad</h1><div className="pulse">Semana {week} · {fmtDate(d.start)} → {fmtDate(d.end)} · {total.toFixed(1)} h registradas{active ? ' · ' + active.name : ''}</div></div>
         <div className="toolbar" style={{ margin: 0 }}><button className="btn secondary small" onClick={() => shift(-1)}>‹</button><button className="btn secondary small" onClick={() => setWeek(weekOf(today()))}>Hoy</button><button className="btn secondary small" onClick={() => shift(1)}>›</button><button className="btn secondary small" onClick={submitWeek}>Enviar semana</button>{canApprove && <button className="btn small" onClick={approve}>Aprobar semana</button>}</div></div>
       <div className="grid cols-2">
         <div className="card"><h3>Temporizador</h3>
@@ -63,7 +66,7 @@ export default function OpsTime() {
       <div className="card"><h3>Registros de la semana</h3>
         {Object.keys(byDay).sort().map(day => <div key={day} className="cal-day"><div className="d">{fmtDate(day)} · {byDay[day].reduce((s, e) => s + e.hours, 0).toFixed(1)} h</div>
           {byDay[day].map((e: any) => <div key={e.id} className="cal-ev"><span className="badge">{e.category}</span><Link to={`/ops/r/timesheets/${e.id}`}>{e.description || e.item_id?.name || e.project_id?.name || 'Sin descripción'}</Link><span style={{ color: 'var(--muted)', fontSize: 12 }}>{e.member_id?.name} · {e.project_id?.name || '—'} · {e.hours} h {e.billable ? '' : '· no facturable'}</span><span className={'badge ' + (e.state === 'aprobado' ? 'ok' : e.state === 'rechazado' ? 'err' : '')}>{e.state}</span>{e.unjustified && <span className="badge err">sin justificación</span>}</div>)}</div>)}
-        {d.entries.length === 0 && <div className="empty">Sin registros esta semana</div>}
+        {entries.length === 0 && <div className="empty">Sin registros esta semana{active ? ' en ' + active.name : ''}</div>}
       </div>
     </div>
   )

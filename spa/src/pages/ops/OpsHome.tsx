@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { fmtDate, ops } from '../../api'
 import { useApp } from '../../context'
+import { useActiveProject } from '../../project'
 
 const STATE: Record<string, string> = { backlog: 'Backlog', por_hacer: 'Por hacer', en_progreso: 'En progreso', bloqueado: 'Bloqueado', desarrollo_completado: 'Dev completado', revision_tecnica: 'Revisión técnica', qa_interno: 'QA', correccion: 'Corrección', regresion: 'Regresión', listo_validacion: 'Listo p/ validar', validacion_cliente: 'Validación cliente', aceptado: 'Aceptado', listo_liberar: 'Listo p/ liberar', liberado: 'Liberado', verificado: 'Verificado', cerrado: 'Cerrado' }
 const Item = ({ i }: { i: any }) => <li><Link to={`/ops/r/items/${i.id}`}>{i.name}</Link> {i.priority === '2' && <span className="badge err">crítica</span>}{i.waiting_client && <span className="badge warn">cliente</span>}<div className="meta">{i.project} · {STATE[i.state] || i.state}{i.due && ' · ' + fmtDate(i.due)}{i.blocked_reason && ' · ' + i.blocked_reason}</div></li>
@@ -14,16 +15,18 @@ export default function OpsHome() {
 }
 
 function MyWork({ toast }: { toast: any }) {
-  const [d, setD] = useState<any>(null)
+  const [raw, setRaw] = useState<any>(null)
+  const active = useActiveProject()
+  const d = raw && active ? Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, Array.isArray(v) ? (v as any[]).filter((x: any) => !('project_id' in x) || x.project_id === active.id) : v])) : raw
   const nav = useNavigate()
-  const load = useCallback(() => ops.mywork().then(setD).catch((e: any) => toast(e.message, 'err')), [toast])
+  const load = useCallback(() => ops.mywork().then(setRaw).catch((e: any) => toast(e.message, 'err')), [toast])
   useEffect(() => { load() }, [load])
   if (!d) return <div className="empty">Preparando su agenda…</div>
   const stopTimer = async () => { await ops.timerStop(); toast('Temporizador detenido', 'ok'); load() }
   return (
     <div>
       <div className="hero">
-        <div><div className="tag">Operaciones · agenda de ejecución</div><h1>Mi trabajo</h1><div className="pulse">{d.assigned.length} asignados · {d.today.length} para hoy · {d.blocked.length} bloqueados · {d.approvals.length} aprobaciones · {d.notifications_unread} notificaciones</div></div>
+        <div><div className="tag">Operaciones · agenda de ejecución{active ? ' · ' + active.name : ''}</div><h1>Mi trabajo</h1><div className="pulse">{d.assigned.length} asignados · {d.today.length} para hoy · {d.blocked.length} bloqueados · {d.approvals.length} aprobaciones · {d.notifications_unread} notificaciones</div></div>
         <div className="toolbar" style={{ margin: 0 }}>
           {d.running_timer ? <div className="timer">⏱ {d.running_timer.item || d.running_timer.project || 'Temporizador'} <button className="btn small" onClick={stopTimer}>Detener</button></div> : <button className="btn secondary small" onClick={() => nav('/ops/time')}>⏱ Registrar tiempo</button>}
           <span className="badge primary">Semana: {d.hours_week.toFixed(1)} h registradas · {d.hours_pending.toFixed(0)} h pendientes</span>

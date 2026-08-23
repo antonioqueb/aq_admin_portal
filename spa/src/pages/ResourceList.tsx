@@ -3,6 +3,8 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useApp } from '../context'
 import RecordTable from '../components/RecordTable'
 import Many2one from '../components/Many2one'
+import { useActiveProject } from '../project'
+import { ops } from '../api'
 
 export default function ResourceList() {
   const { resource = '' } = useParams()
@@ -10,18 +12,23 @@ export default function ResourceList() {
   const nav = useNavigate()
   const [sp, setSp] = useSearchParams()
   const res = schema?.resources[resource]
+  const active = useActiveProject()
+  const projField = app === 'ops' && res ? (resource === 'projects' ? 'id' : res.fields.project_id ? 'project_id' : res.fields.ops_project_id ? 'ops_project_id' : res.tabs?.length === 0 && res.fields.meeting_id ? 'meeting_id.project_id' : res.fields.case_id ? 'case_id.project_id' : null) : null
   const [records, setRecords] = useState<any[]>([])
   const [total, setTotal] = useState(0)
   const [search, setSearch] = useState(sp.get('q') || '')
   const [order, setOrder] = useState('')
   const [offset, setOffset] = useState(0)
+  const [views, setViews] = useState<any[]>([])
+  const loadViews = useCallback(() => { if (app === 'ops') ops.views(resource).then(r => setViews(r.views)).catch(() => {}) }, [app, resource])
+  useEffect(() => { loadViews() }, [loadViews])
   const limit = 60
   const filters = useMemo(() => { const f: Record<string, any> = {}; sp.forEach((v, k) => { if (k.startsWith('f.')) f[k.slice(2)] = v }); return f }, [sp])
   const load = useCallback(() => {
     if (!res) return
-    rapi.list(resource, { search, filters, order: order || undefined, limit, offset }).then(r => { setRecords(r.records); setTotal(r.total) }).catch(e => toast(e.message, 'err'))
-  }, [res, resource, search, filters, order, offset, toast, rapi])
-  useEffect(() => { setOffset(0) }, [resource, search, filters])
+    rapi.list(resource, { search, filters, order: order || undefined, limit, offset, domain: projField && active ? [[projField, '=', active.id]] : undefined }).then(r => { setRecords(r.records); setTotal(r.total) }).catch(e => toast(e.message, 'err'))
+  }, [res, resource, search, filters, order, offset, toast, rapi, active, projField])
+  useEffect(() => { setOffset(0) }, [resource, search, filters, active])
   useEffect(() => { load() }, [load])
   if (!res) return <div className="empty">Recurso no disponible para su rol.</div>
   const setFilter = (k: string, v: any) => {
@@ -30,6 +37,12 @@ export default function ResourceList() {
     setSp(n)
   }
   const onSort = (f: string) => setOrder(order === f + ' asc' ? f + ' desc' : f + ' asc')
+  const saveFilter = async () => {
+    const name = prompt('Nombre del filtro guardado'); if (!name) return
+    const names: Record<string, string> = {}; sp.forEach((v, k) => { if (k.startsWith('n.')) names[k] = v })
+    await ops.saveView({ name, resource, view_mode: 'list', filters: { filters, search, order, names }, shared: confirm('¿Compartir con el equipo?') }); loadViews(); toast('Filtro guardado', 'ok')
+  }
+  const applyView = (v: any) => { const n = new URLSearchParams(); Object.entries(v.filters.filters || {}).forEach(([k, val]) => n.set('f.' + k, String(val))); Object.entries(v.filters.names || {}).forEach(([k, val]) => n.set(k, String(val))); setSp(n); setSearch(v.filters.search || ''); setOrder(v.filters.order || '') }
   const exportCsv = async () => {
     if (!user?.can_export) { toast('Exportación controlada: su cuenta no tiene permiso de exportación. Solicítelo a Dirección / propietario de plataforma.', 'err'); return }
     if (app === 'ops') { window.open(rapi.exportUrl(resource, { search, filters }), '_blank'); return }
@@ -55,10 +68,10 @@ export default function ResourceList() {
   return (
     <div>
       <div className="toolbar">
-        <div><h1>{res.label}</h1><div style={{ color: '#6b7280', fontSize: 12 }}>{total} registros</div></div>
+        <div><h1>{res.label}</h1><div style={{ color: 'var(--muted)', fontSize: 12 }}>{total} registros{projField && active && <> · filtrado por <b>{active.name}</b></>}{projField && !active && app === 'ops' && ' · todos los proyectos'}</div></div>
         <span className="spacer" />
         <button className="btn secondary" onClick={exportCsv}>Exportar CSV</button>
-        {res.can.create && <button className="btn" onClick={() => nav(`${base}/r/${resource}/new`)}>+ Nuevo {res.singular.toLowerCase()}</button>}
+        {res.can.create && <button className="btn" onClick={() => nav(`${base}/r/${resource}/new` + (app === 'ops' && active && res.fields.project_id ? `?d.project_id=${active.id}&n.project_id=${encodeURIComponent(active.name)}` : ''))}>+ Nuevo {res.singular.toLowerCase()}</button>}
       </div>
       <div className="card tight">
         <div className="filters">
@@ -71,7 +84,9 @@ export default function ResourceList() {
             return null
           })}
           {Object.keys(filters).length > 0 && <button className="btn link small" onClick={() => setSp(new URLSearchParams())}>Limpiar filtros</button>}
+          {app === 'ops' && <button className="btn secondary small" onClick={saveFilter}>Guardar filtro</button>}
         </div>
+        {app === 'ops' && views.length > 0 && <div className="chip-row">{views.map(v => <span key={v.id}><button onClick={() => applyView(v)}>{v.name}{v.shared ? ' · equipo' : ''}</button>{v.mine && <button title="Eliminar" onClick={() => ops.deleteView(v.id).then(loadViews)}>✕</button>}</span>)}</div>}
         <RecordTable res={res} records={records} onOpen={r => nav(`${base}/r/${resource}/${r.id}`)} order={order} onSort={onSort} />
         <div className="pager">
           <button className="btn secondary small" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>‹ Anterior</button>

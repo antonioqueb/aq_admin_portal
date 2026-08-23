@@ -55,6 +55,7 @@ OPS_RESOURCES = {
                    "client_hidden": CLIENT_HIDDEN_COMMON, "roles": {"read": EVERYONE, "write": INTERNAL, "create": LEADS, "delete": FULL}},
     "requests": {
         "model": "aq.ops.request", "label": "Solicitudes", "singular": "Solicitud", "section": "trabajo", "order": 20, "attachments": True, "chatter": True, "scope": "project_id", "org_field": "partner_id",
+        "essential": ["name", "description", "partner_id", "project_id", "source", "urgency", "request_type", "scope_decision", "state"],
         "list": ["name", "partner_id", "project_id", "source", "request_type", "urgency", "scope_decision", "state", "assignee_id", "create_date"],
         "filters": ["state", "request_type", "scope_decision", "urgency", "source", "project_id", "partner_id", "assignee_id"],
         "groups": [{"title": "Solicitud", "fields": ["name", "description", "source", "partner_id", "project_id", "requester_partner_id", "requester_department", "urgency", "client_visible"]},
@@ -70,6 +71,7 @@ OPS_RESOURCES = {
     },
     "items": {
         "model": "aq.ops.item", "label": "Backlog y trabajo", "singular": "Elemento", "section": "trabajo", "order": 30, "attachments": True, "chatter": True, "scope": "project_id",
+        "essential": ["name", "project_id", "item_type", "state", "assignee_id", "date_due", "estimate_hours", "acceptance_criteria", "description"],
         "list": ["name", "item_type", "project_id", "state", "assignee_id", "priority", "date_due", "estimate_hours", "remaining_hours", "spent_hours", "sprint_id", "milestone_id", "waiting_client"],
         "filters": ["item_type", "state", "project_id", "assignee_id", "priority", "sprint_id", "milestone_id", "waiting_client", "client_visible", "unplanned", "is_rework"],
         "groups": [{"title": "Elemento", "fields": ["name", "item_type", "project_id", "parent_id", "deliverable_id", "milestone_id", "sprint_id", "description", "acceptance_criteria", "tags", "client_visible"]},
@@ -122,6 +124,7 @@ OPS_RESOURCES = {
                   "actions": [{"name": "action_approve", "label": "Aprobar (queda inmutable)", "roles": LEADS + CLIENT_APPROVERS}, {"name": "action_new_version", "label": "Nueva versión", "roles": LEADS}],
                   "client_hidden": CLIENT_HIDDEN_COMMON, "roles": {"read": EVERYONE, "write": INTERNAL, "create": INTERNAL, "delete": FULL}},
     "raid": {"model": "aq.ops.raid", "label": "RAID · riesgos, supuestos, problemas, dependencias", "singular": "Registro RAID", "section": "gobierno", "order": 40, "chatter": True, "scope": "project_id",
+             "essential": ["name", "raid_type", "project_id", "probability", "impact", "owner_id", "next_action", "next_action_date", "state"],
              "list": ["raid_type", "name", "project_id", "probability", "impact", "severity", "owner_id", "requires_client", "next_action_date", "state", "endangers_date"],
              "filters": ["raid_type", "state", "project_id", "owner_id", "requires_client", "endangers_date"],
              "groups": [{"title": "Registro", "fields": ["name", "raid_type", "project_id", "meeting_id", "description", "probability", "impact", "severity", "state", "client_visible"]},
@@ -129,6 +132,7 @@ OPS_RESOURCES = {
                         {"title": "Dependencias", "fields": ["depends_on_project_id", "depends_on_item_id", "affects_item_ids", "endangers_date"]}],
              "client_hidden": CLIENT_HIDDEN_COMMON + ["owner_id", "probability"], "roles": {"read": EVERYONE, "write": TEAM, "create": TEAM, "delete": LEADS}},
     "incidents": {"model": "aq.ops.incident", "label": "Incidentes productivos", "singular": "Incidente", "section": "gobierno", "order": 50, "attachments": True, "chatter": True, "scope": "project_id", "org_field": "partner_id",
+                  "essential": ["name", "project_id", "partner_id", "severity", "step", "owner_id", "description"],
                   "list": ["name", "partner_id", "project_id", "severity", "step", "owner_id", "reported_at", "sla_breached", "affects_other_clients"],
                   "filters": ["severity", "step", "project_id", "partner_id", "owner_id", "sla_breached", "affects_other_clients"],
                   "groups": [{"title": "Incidente", "fields": ["name", "project_id", "partner_id", "request_id", "description", "severity", "step", "owner_id", "reported_at", "affects_other_clients", "client_visible"]},

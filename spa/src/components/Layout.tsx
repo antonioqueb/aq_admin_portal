@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api, ops } from '../api'
 import { useApp } from '../context'
 import CommandPalette from './CommandPalette'
+import { useActiveProject, setActiveProject } from '../project'
 
 const ROLE_LABEL: Record<string, string> = { direccion: 'Dirección', coordinacion: 'Coordinación administrativa', equipo: 'Equipo', consulta: 'Consulta' }
 const OPS_ROLE_LABEL: Record<string, string> = { platform_owner: 'Propietario de plataforma', ops_director: 'Dirección de Operaciones / PMO', pm: 'Project Manager', functional_lead: 'Líder funcional', tech_lead: 'Líder técnico', consultant: 'Consultor funcional', developer: 'Desarrollador', qa: 'QA / Tester', support: 'Soporte / Guardia', collaborator: 'Colaborador', partner: 'Socio / subcontratista', client_sponsor: 'Patrocinador', client_po: 'Product Owner', client_validator: 'Validador departamental', client_requester: 'Solicitante', observer: 'Observador / Auditor', admin_liaison: 'Enlace administrativo' }
@@ -14,7 +15,9 @@ export const OpsIcon = ({ size = 18 }: { size?: number }) => (
 )
 
 export default function Layout() {
-  const { user, schema, logout, app, setApp, toast } = useApp()
+  const { user, schema, logout, app, setApp, toast, rapi } = useApp()
+  const activeProject = useActiveProject()
+  const [projects, setProjects] = useState<{ id: number; name: string; health?: string }[]>([])
   const [offline, setOffline] = useState(!navigator.onLine)
   const [theme, setTheme] = useState(localStorage.getItem('aq_theme') || 'dark')
   const toggleTheme = () => { const t = theme === 'dark' ? 'light' : 'dark'; setTheme(t); localStorage.setItem('aq_theme', t); document.documentElement.setAttribute('data-theme', t) }
@@ -23,7 +26,6 @@ export default function Layout() {
   const [open, setOpen] = useState(false)          // siempre oculto al abrir el portal
   const [palette, setPalette] = useState(false)
   const [count, setCount] = useState(0)
-  const [activeProject, setActiveProject] = useState<{ id: number; name: string } | null>(() => { try { return JSON.parse(localStorage.getItem('aq_active_project') || 'null') } catch { return null } })
   const isOps = app === 'ops'
   const external = !!(isOps && (schema?.is_external || user?.is_external))
   useEffect(() => {
@@ -43,11 +45,19 @@ export default function Layout() {
     const id = setInterval(tick, 45000)
     return () => clearInterval(id)
   }, [isOps, toast])
-  useEffect(() => { const h = () => { try { setActiveProject(JSON.parse(localStorage.getItem('aq_active_project') || 'null')) } catch {} }; window.addEventListener('aq:project', h); return () => window.removeEventListener('aq:project', h) }, [])
+  useEffect(() => { if (isOps) rapi.list('projects', { limit: 200, fields: 'name,health,stage', order: 'name asc' }).then(r => setProjects(r.records.filter((p: any) => p.stage !== 'cerrado'))).catch(() => {}) }, [isOps, rapi])
   const onKey = useCallback((e: KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette(p => !p) }
-    if (e.key === 'Escape') setOpen(false)
-  }, [])
+    const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName) || (e.target as HTMLElement)?.isContentEditable
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette(p => !p); return }
+    if (e.key === 'Escape') { setOpen(false); return }
+    if (typing || e.metaKey || e.ctrlKey || e.altKey) return
+    if (e.key === '/') { e.preventDefault(); setPalette(true) }
+    if (e.key.toLowerCase() === 'n' && app === 'ops') { e.preventDefault(); nav('/ops/r/items/new') }
+    if (e.key.toLowerCase() === 'b' && app === 'ops') { e.preventDefault(); nav('/ops/board') }
+    if (e.key.toLowerCase() === 'm' && app === 'ops') { e.preventDefault(); nav('/ops') }
+    if (e.key.toLowerCase() === 'h' && app === 'ops') { e.preventDefault(); nav('/ops/today') }
+    if (e.key.toLowerCase() === 'p' && app === 'ops') { e.preventDefault(); setOpen(true); setTimeout(() => (document.getElementById('project-select') as HTMLSelectElement)?.focus(), 300) }
+  }, [app, nav])
   useEffect(() => { window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [onKey])
   if (!user || !schema) return <div className="empty">Su cuenta no tiene acceso a esta aplicación.</div>
   const resources = Object.values(schema.resources).filter(r => r.section).sort((a, b) => a.order - b.order)
@@ -71,9 +81,14 @@ export default function Layout() {
           </div>
         ) : <div className="appname">{isOps ? <><OpsIcon size={14} /> Operaciones</> : 'Administración'}</div>}
         <div className="crumb">
-          {isOps && <span className="ctx"><i>◆</i>{user.organization_name || 'AlphaQueb'}{activeProject && <> <i>/</i> <b onClick={() => nav(`/ops/projects/${activeProject.id}`)} style={{ cursor: 'pointer' }}>{activeProject.name}</b> <a href="#" onClick={e => { e.preventDefault(); localStorage.removeItem('aq_active_project'); window.dispatchEvent(new Event('aq:project')) }} title="Quitar proyecto activo">✕</a></>}</span>}
+          {isOps && <span className="ctx"><i>◆</i>{user.organization_name || 'AlphaQueb'} <i>/</i>
+            <select className="ctx-select" value={activeProject?.id || ''} onChange={e => { const pr = projects.find(x => x.id === Number(e.target.value)); setActiveProject(pr ? { id: pr.id, name: pr.name } : null) }} title="Proyecto activo (filtra todo Operaciones)">
+              <option value="">Todos los proyectos</option>{projects.map(pr => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
+            </select>
+            {activeProject && <b onClick={() => nav(`/ops/projects/${activeProject.id}`)} style={{ cursor: 'pointer' }} title="Abrir centro de mando">↗</b>}</span>}
           {current && <><i>/</i><b>{current}</b></>}
         </div>
+        {isOps && !external && <button className="btn small today-btn" onClick={() => nav('/ops/today')}>Hoy</button>}
         <button className="palette-btn" onClick={() => setPalette(true)}><span>⌕</span> Buscar o ir a… <kbd>⌘K</kbd></button>
         <button className="theme-btn" onClick={toggleTheme} title={theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'} aria-label="Tema">{theme === 'dark' ? '☀' : '☾'}</button>
         <button className="bell" onClick={() => nav(isOps ? '/ops/notifications' : '/alerts')} aria-label="Notificaciones">{isOps ? '🔔' : '⚠'}{count > 0 && <em>{count > 99 ? '99+' : count}</em>}</button>
@@ -105,9 +120,23 @@ export default function Layout() {
             <NavLink to="/ops/r/documents">Documentación autorizada</NavLink>
             <NavLink to="/ops/notifications">Notificaciones</NavLink>
           </>)}
+          {isOps && (<>
+            <div className="section">Proyecto activo</div>
+            <div className="proj-picker">
+              <select id="project-select" value={activeProject?.id || ''} onChange={e => { const pr = projects.find(x => x.id === Number(e.target.value)); setActiveProject(pr ? { id: pr.id, name: pr.name } : null) }}>
+                <option value="">Todos los proyectos</option>{projects.map(pr => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
+              </select>
+              <div className="proj-list">
+                <a href="#" className={!activeProject ? 'on' : ''} onClick={e => { e.preventDefault(); setActiveProject(null) }}>◎ Todos los proyectos</a>
+                {projects.map(pr => <a href="#" key={pr.id} className={activeProject?.id === pr.id ? 'on' : ''} onClick={e => { e.preventDefault(); setActiveProject({ id: pr.id, name: pr.name }) }}><span className={'health ' + (pr.health || 'verde')} />{pr.name}</a>)}
+              </div>
+              {activeProject && <div style={{ fontSize: 11, color: 'var(--muted)', padding: '4px 18px' }}>Todo lo que ves se filtra por <b>{activeProject.name}</b>. Atajo: <kbd>P</kbd></div>}
+            </div>
+          </>)}
           {isOps && !external && (<>
             <div className="section">Operaciones</div>
             <NavLink to="/ops" end>Mi trabajo</NavLink>
+            <NavLink to="/ops/today">Hoy · acciones rápidas</NavLink>
             {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/portfolio">Torre de control del portafolio</NavLink>}
             {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/board">Tablero de trabajo (vistas)</NavLink>}
             {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/requests">Bandeja de solicitudes</NavLink>}
