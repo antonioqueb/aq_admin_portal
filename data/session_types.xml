@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="stype_daily" model="aq.ops.session.type"><field name="name">Daily Sync</field><field name="code">DAILY SYNC</field><field name="sequence">10</field><field name="duration_minutes">15</field><field name="meeting_type">seguimiento</field><field name="agenda_template">1. Avances desde la última sesión
+2. Bloqueos
+3. Compromisos del día</field></record>
+    <record id="stype_retro" model="aq.ops.session.type"><field name="name">Retrospectiva</field><field name="code">RETROSPECTIVA</field><field name="sequence">20</field><field name="duration_minutes">60</field><field name="meeting_type">retro</field><field name="agenda_template">1. Revisión de avances del periodo
+2. Validaciones del cliente
+3. Acuerdos y siguientes pasos</field></record>
+    <record id="stype_seg" model="aq.ops.session.type"><field name="name">Seguimiento</field><field name="code">SEGUIMIENTO</field><field name="sequence">30</field><field name="duration_minutes">45</field><field name="meeting_type">seguimiento</field></record>
+    <record id="stype_cap" model="aq.ops.session.type"><field name="name">Capacitación</field><field name="code">CAPACITACIÓN</field><field name="sequence">40</field><field name="duration_minutes">90</field><field name="meeting_type">cliente</field><field name="agenda_template">1. Objetivo de la capacitación
+2. Recorrido funcional
+3. Ejercicios y dudas
+4. Material y evaluación</field></record>
+    <record id="stype_entrega" model="aq.ops.session.type"><field name="name">Entrega</field><field name="code">ENTREGA</field><field name="sequence">50</field><field name="duration_minutes">60</field><field name="meeting_type">validacion</field><field name="agenda_template">1. Alcance del entregable
+2. Demostración
+3. Criterios de aceptación
+4. Retroalimentación y acuerdos</field></record>
+    <record id="stype_valid" model="aq.ops.session.type"><field name="name">Validación</field><field name="code">VALIDACIÓN</field><field name="sequence">60</field><field name="duration_minutes">60</field><field name="meeting_type">validacion</field></record>
+    <record id="stype_uat" model="aq.ops.session.type"><field name="name">Pruebas / UAT</field><field name="code">PRUEBAS</field><field name="sequence">70</field><field name="duration_minutes">90</field><field name="meeting_type">validacion</field></record>
+    <record id="stype_kick" model="aq.ops.session.type"><field name="name">Kickoff</field><field name="code">KICKOFF</field><field name="sequence">80</field><field name="duration_minutes">60</field><field name="meeting_type">kickoff</field></record>
+    <record id="stype_rev" model="aq.ops.session.type"><field name="name">Revisión</field><field name="code">REVISIÓN</field><field name="sequence">90</field><field name="duration_minutes">45</field><field name="meeting_type">seguimiento</field></record>
+    <record id="stype_emerg" model="aq.ops.session.type"><field name="name">Emergencia</field><field name="code">EMERGENCIA</field><field name="sequence">100</field><field name="duration_minutes">45</field><field name="meeting_type">tecnica</field><field name="client_visible" eval="False"/></record>
+    <record id="stype_prod" model="aq.ops.session.type"><field name="name">Producción</field><field name="code">PRODUCCIÓN</field><field name="sequence">110</field><field name="duration_minutes">60</field><field name="meeting_type">tecnica</field></record>
+    <record id="param_auto_agreements" model="ir.config_parameter"><field name="key">aq_ops.auto_confirm_agreements</field><field name="value">1</field></record>
+</odoo>

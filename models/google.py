@@ -588,9 +588,12 @@ class GoogleSync(models.AbstractModel):
                 continue
             m.with_context(aq_skip_activity=True).write({"transcript": text, "meet_record": rec["name"], "state": "realizada" if m.state == "programada" else m.state})
             try:
-                self.env["aq.ops.ai"].sudo().summarize_meeting(m)
+                if not m.session_type_id or m.session_type_id.auto_process:
+                    m.process_with_ai()
+                else:
+                    self.env["aq.ops.ai"].sudo().summarize_meeting(m)
             except Exception as e:  # noqa
-                _logger.info("Resumen IA: %s", e)
+                _logger.info("Proceso IA: %s", e)
             self.env["aq.ops.notification"].sudo().notify_role(m.project_id, ["pm"], "accion_requerida", _("Transcripción de Meet recibida: %s — confirme acuerdos propuestos") % m.name, "meetings", m.id)
             n += 1
         acc.write({"last_meet_sync": fields.Datetime.now()})
@@ -645,9 +648,12 @@ class GoogleSync(models.AbstractModel):
         m.with_context(aq_skip_activity=True).write({"transcript": body if len(body) > 2000 else m.transcript, "minutes": (m.minutes or "") + "<p><b>%s</b></p><pre>%s</pre>" % (msg.subject, body[:6000].replace("<", "&lt;")) if len(body) <= 2000 else m.minutes or "<p>%s</p>" % msg.subject,
                                                      "state": "realizada"})
         try:
-            self.env["aq.ops.ai"].sudo().summarize_meeting(m)
+            if not m.session_type_id or m.session_type_id.auto_process:
+                m.process_with_ai()
+            else:
+                self.env["aq.ops.ai"].sudo().summarize_meeting(m)
         except Exception as e:  # noqa
-            _logger.info("Resumen IA: %s", e)
+            _logger.info("Proceso IA: %s", e)
         self.env["aq.ops.notification"].sudo().notify_role(m.project_id, ["pm"], "accion_requerida", _("Notas de reunión recibidas: %s — revise y confirme acuerdos") % m.name, "meetings", m.id)
         return m
 

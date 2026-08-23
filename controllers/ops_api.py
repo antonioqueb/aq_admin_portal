@@ -539,6 +539,64 @@ class OpsApi(http.Controller):
         request.env["aq.ops.saved.view"].sudo().search([("id", "=", vid), ("user_id", "=", user.id)]).unlink()
         return _json({"ok": True})
 
+    # ------------------------------------------------------------------ sesiones
+    @portal_route(OPS + "/sessions/generate", methods=["POST"], app="ops")
+    def session_generate(self, user):
+        role = _effective_role(user)
+        if role in CLIENT_ROLES or role == "observer":
+            return _error(_("Sin permiso"), 403)
+        b = _body()
+        project = _get(OPS_RESOURCES["projects"], user, int(b["project_id"]))
+        stype = request.env["aq.ops.session.type"].sudo().browse(int(b["type_id"])).exists()
+        if not stype:
+            return _error(_("Tipo de sesión inválido"), 400)
+        start = fields.Datetime.to_datetime(b["start"].replace("T", " ")[:19])
+        m, ev = request.env["aq.ops.meeting"].sudo().with_context(portal_user_id=user.id).generate_session(
+            project, stype, start, b.get("duration"), b.get("extra_emails") or [], b.get("agenda"), user)
+        _log(user, "create", resource="ops:meetings", model="aq.ops.meeting", res_id=m.id, summary=_("Sesión generada: %s") % m.name)
+        return _json({"meeting": {"id": m.id, "name": m.name, "folio": m.folio, "meet": m.location, "event": m.google_event_id, "date": str(m.date)}}, status=201)
+
+    @portal_route(OPS + "/sessions/map", methods=["GET"], app="ops")
+    def session_map(self, user):
+        dom = _scope_domain(OPS_RESOURCES["meetings"], user)
+        p = request.params
+        if p.get("project_id"):
+            dom.append(("project_id", "=", int(p["project_id"])))
+        Meeting = request.env["aq.ops.meeting"].sudo()
+        rows = Meeting.search(dom, order="date desc", limit=int(p.get("limit", 1000)))
+        projects = {}
+        out = []
+        for m in rows:
+            out.append({"id": m.id, "folio": m.folio or None, "name": m.name, "project": m.project_id.name, "project_id": m.project_id.id, "date": str(m.date or ""),
+                        "type": m.session_type_id.name or dict(m._fields["meeting_type"].selection).get(m.meeting_type), "state": m.state, "processed": m.processed,
+                        "has_transcript": bool(m.transcript), "doc": m.summary_doc_url or m.google_doc_url, "meet": m.location, "imported": m.imported, "agreements": m.agreement_count})
+            pr = projects.setdefault(m.project_id.id, {"project": m.project_id.name, "prefix": m.project_id.session_prefix, "seq": m.project_id.session_seq, "po": m.project_id.session_po,
+                                                       "total": 0, "processed": 0, "pending_transcript": 0})
+            pr["total"] += 1
+            pr["processed"] += 1 if m.processed else 0
+            pr["pending_transcript"] += 1 if (m.state == "realizada" and not m.transcript and not m.processed) else 0
+        return _json({"sessions": out, "projects": list(projects.values()), "types": [{"id": t.id, "name": t.name, "duration": t.duration_minutes} for t in request.env["aq.ops.session.type"].sudo().search([])]})
+
+    @portal_route(OPS + "/sessions/import-history", methods=["POST"], app="ops")
+    def session_import(self, user):
+        if _effective_role(user) not in ("platform_owner", "ops_director"):
+            return _error(_("Solo propietario/Dirección de Operaciones"), 403)
+        stats = request.env["aq.ops.session.importer"].sudo().with_context(portal_user_id=user.id).import_history(int(_body().get("months", 12)))
+        _log(user, "action", resource="ops:meetings", summary=_("Importación de sesiones históricas: %s") % stats)
+        return _json({"stats": stats})
+
+    @portal_route(OPS + "/sessions/export", methods=["POST"], app="ops")
+    def session_export(self, user):
+        if _effective_role(user) in CLIENT_ROLES:
+            return _error(_("Sin permiso"), 403)
+        acc = request.env["aq.google.sync"].sudo()._account()
+        rows = [["Folio", "Sesión", "Proyecto", "Fecha", "Tipo", "Estado", "Procesada IA", "Acuerdos", "Doc resumen", "Meet"]]
+        for m in request.env["aq.ops.meeting"].sudo().search(_scope_domain(OPS_RESOURCES["meetings"], user), order="project_id, date"):
+            rows.append([m.folio or "", m.name, m.project_id.name, str(m.date or ""), m.session_type_id.name or m.meeting_type, m.state, "sí" if m.processed else "no", m.agreement_count, m.summary_doc_url or "", m.location or ""])
+        sid, url = acc.create_sheet("AlphaOps · Mapa de sesiones", rows, acc.drive_folder_id("AlphaOps"))
+        _log(user, "action", resource="ops:meetings", summary=_("Mapa de sesiones exportado a Sheets"))
+        return _json({"url": url})
+
     # ------------------------------------------------------------------ notificaciones
     @portal_route(OPS + "/notifications", methods=["GET"], app="ops")
     def notifications(self, user):

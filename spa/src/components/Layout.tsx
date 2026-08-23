@@ -137,6 +137,7 @@ export default function Layout() {
             <div className="section">Operaciones</div>
             <NavLink to="/ops" end>Mi trabajo</NavLink>
             <NavLink to="/ops/today">Hoy · acciones rápidas</NavLink>
+            <NavLink to="/ops/sessions">Sesiones (generador y mapa)</NavLink>
             {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/portfolio">Torre de control del portafolio</NavLink>}
             {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/board">Tablero de trabajo (vistas)</NavLink>}
             {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/requests">Bandeja de solicitudes</NavLink>}
