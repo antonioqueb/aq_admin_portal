@@ -29,6 +29,41 @@ class OpsEngine(models.AbstractModel):
     def _N(self):
         return self.env["aq.ops.notification"]
 
+    @api.model
+    def safe_partner(self, name):
+        """Crea (o recupera) un cliente rellenando campos obligatorios sin valor por defecto (p. ej. personalizaciones como group_rfq)."""
+        Partner = self.env["res.partner"].sudo()
+        existing = Partner.search([("name", "=", name)], limit=1)
+        if existing:
+            return existing
+        vals = {"name": name, "is_company": True}
+        defaults = Partner.default_get(list(Partner._fields))
+        for fname, f in Partner._fields.items():
+            if f.required and fname not in vals and defaults.get(fname) in (None, False) and not f.compute and f.store:
+                if f.type == "selection":
+                    sel = f.selection(Partner) if callable(f.selection) else f.selection
+                    if sel:
+                        vals[fname] = sel[0][0]
+                elif f.type == "boolean":
+                    vals[fname] = False
+                elif f.type in ("char", "text"):
+                    vals[fname] = name
+                elif f.type in ("integer", "float", "monetary"):
+                    vals[fname] = 0
+        return Partner.create(vals)
+
+    @api.model
+    def seed_getting_ready(self):
+        P = self.env["aq.ops.project"].sudo()
+        if P.search_count([("name", "=", "Getting Ready · Cierre y handoff")]):
+            return True
+        partner = self.safe_partner("Getting Ready")
+        tpl = self.env.ref("aq_admin_portal.ops_template_cierre", raise_if_not_found=False)
+        pm = self.env.ref("aq_admin_portal.member_direccion", raise_if_not_found=False)
+        P.create({"name": "Getting Ready · Cierre y handoff", "partner_id": partner.id, "service_type": "cierre", "template_id": tpl.id if tpl else False,
+                  "pm_id": pm.id if pm else False, "objective": "Cierre, transición, pendientes conocidos y handoff."})
+        return True
+
     # ------------------------------------------------------------ automatizaciones integradas (7)
     @api.model
     def auto_project_without_next_action(self):
