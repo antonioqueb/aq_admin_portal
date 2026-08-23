@@ -22,6 +22,7 @@
             <form>
                 <header>
                     <button name="action_send_reset_email" type="object" string="Enviar enlace para establecer contraseña" class="btn-primary"/>
+                    <button name="action_close_sessions" type="object" string="Cerrar sesiones activas"/>
                 </header>
                 <sheet>
                     <widget name="web_ribbon" title="Archivado" bg_color="text-bg-danger" invisible="active"/>
@@ -67,7 +68,20 @@
         <field name="view_mode">list,form</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">Crea el primer usuario externo del portal</p>
-            <p>Estos usuarios no son usuarios de Odoo: tienen su propio login, contraseña y recuperación.</p>
+            <p>Estos usuarios no son usuarios de Odoo (no consumen licencias): tienen su propio login, contraseña y recuperación.
+               Al guardar, usa "Enviar enlace para establecer contraseña" o escribe una en "Nueva contraseña".</p>
         </field>
+    </record>
+    <record id="action_aq_portal_session" model="ir.actions.act_window">
+        <field name="name">Sesiones del portal</field>
+        <field name="res_model">aq.portal.session</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_aq_portal_params" model="ir.actions.act_window">
+        <field name="name">Parámetros del portal</field>
+        <field name="res_model">ir.config_parameter</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[("key", "like", "aq_admin_portal.")]</field>
+        <field name="context">{"default_key": "aq_admin_portal."}</field>
     </record>
 </odoo>

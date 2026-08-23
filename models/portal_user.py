@@ -37,7 +37,7 @@ class PortalUser(models.Model):
     email = fields.Char(required=True, tracking=True)
     role = fields.Selection(ROLES, required=True, default="consulta", tracking=True, string="Rol")
     active = fields.Boolean(default=True, tracking=True)
-    member_id = fields.Many2one("aq.portal.member", string="Integrante relacionado", ondelete="set null")
+    member_id = fields.Many2one("aq.portal.member", string="Integrante del equipo relacionado", ondelete="set null")
     password_hash = fields.Char(copy=False, groups="base.group_system")
     new_password = fields.Char(string="Nueva contraseña", compute="_compute_new_password",
                                inverse="_inverse_new_password", store=False,
@@ -168,7 +168,8 @@ class PortalUser(models.Model):
     def _portal_base_url(self):
         icp = self.env["ir.config_parameter"].sudo()
         base = icp.get_param("aq_admin_portal.base_url") or icp.get_param("web.base.url")
-        return base.rstrip("/") + "/admin-portal"
+        path = icp.get_param("aq_admin_portal.portal_path") or "/admin-portal"
+        return base.rstrip("/") + path
 
     def generate_reset_token(self):
         self.ensure_one()
@@ -216,6 +217,10 @@ class PortalUser(models.Model):
     def action_create_welcome(self):
         """Crea un token de restablecimiento y envía correo de bienvenida para fijar contraseña."""
         return self.action_send_reset_email()
+
+    def action_close_sessions(self):
+        self.sudo().session_ids.write({"active": False})
+        return True
 
     def to_public_dict(self):
         self.ensure_one()

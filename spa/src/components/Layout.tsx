@@ -31,7 +31,6 @@ export default function Layout() {
               <div className="section">{s.label}</div>
               {s.key === 'ritmo' && <NavLink to="/reports" onClick={() => setOpen(false)}>Resúmenes ejecutivos</NavLink>}
               {items.map(r => <NavLink key={r.key} to={'/r/' + r.key} onClick={() => setOpen(false)}>{r.label}</NavLink>)}
-              {s.key === 'admin' && user.role === 'direccion' && <NavLink to="/users" onClick={() => setOpen(false)}>Usuarios del portal</NavLink>}
             </div>
           )
         })}

@@ -66,14 +66,15 @@ Datos iniciales: integrantes (Dirección y Coordinación), los 4 clientes del po
 
 3. Parámetro opcional `aq_admin_portal.base_url` (Ajustes → Técnico → Parámetros del sistema) con la URL
    pública si difiere de `web.base.url` (se usa para los enlaces de los correos).
-4. Abrir `https://<servidor>/admin-portal`. Mientras no exista ningún usuario del portal, se muestra la
-   pantalla de **configuración inicial** para crear la primera cuenta de *Dirección* sin entrar a Odoo
-   (opcionalmente protegida con el parámetro `aq_admin_portal.setup_key`). Desde esa cuenta se dan de alta
-   los demás usuarios en **Administración → Usuarios del portal**. Los usuarios del portal no son `res.users`
-   y no consumen licencias de Odoo.
+4. Los usuarios se crean **únicamente** en Odoo: **Portal Administrativo → Configuración del portal →
+   Usuarios del portal**: Nombre, Login, Correo, Rol, Integrante relacionado, y contraseña mediante
+   *Nueva contraseña* o el botón *Enviar enlace para establecer contraseña*. En esa misma sección están
+   Sesiones activas, Integrantes del equipo y Parámetros del portal. El portal web no permite crear ni
+   administrar usuarios. Los usuarios del portal no son `res.users` y no consumen licencias de Odoo.
+5. Abrir `https://<servidor>/admin-portal` e iniciar sesión.
 
 Parámetros del sistema: `aq_admin_portal.stale_days` (5), `warn_days` (7), `prospect_days` (7),
-`depletion_threshold` (80 %), `session_hours` (12).
+`depletion_threshold` (80 %), `session_hours` (12), `portal_path` (/admin-portal), `base_url`.
 
 ## Desarrollo del frontend
 
@@ -95,7 +96,6 @@ Autenticación `Authorization: Bearer <token>`.
 * `GET /r/<recurso>/<id>/messages`, `POST /r/<recurso>/<id>/note`, `GET|POST /r/<recurso>/<id>/attachments`
 * `GET /dashboard`, `GET /calendar`, `GET /routines/today`, `POST /routines/<id>/toggle`, `POST /reports/generate`
 * `GET /alerts`, `POST /alerts/<id>/dismiss`, `POST /alerts/recompute`
-* `GET|POST /users`, `PUT /users/<id>`, `POST /users/<id>/send-reset` (solo Dirección)
 
 ## Cron
 

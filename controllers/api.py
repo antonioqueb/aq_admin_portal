@@ -247,36 +247,6 @@ class PortalApi(http.Controller):
         _log(user, "login", summary=_("Inicio de sesión"))
         return _json({"token": token, "user": user.to_public_dict()})
 
-    @portal_route(API + "/auth/status", methods=["GET"], auth_required=False)
-    def status(self, _u):
-        User = request.env["aq.portal.user"].sudo().with_context(active_test=False)
-        icp = request.env["ir.config_parameter"].sudo()
-        return _json({"needs_setup": User.search_count([]) == 0,
-                      "setup_key_required": bool(icp.get_param("aq_admin_portal.setup_key")),
-                      "company": request.env.company.name})
-
-    @portal_route(API + "/auth/setup", methods=["POST"], auth_required=False)
-    def setup(self, _u):
-        """Crea el primer usuario (Dirección) sin pasar por Odoo. Solo funciona mientras no exista ningún usuario."""
-        User = request.env["aq.portal.user"].sudo().with_context(active_test=False)
-        if User.search_count([]):
-            return _error(_("La configuración inicial ya se realizó. Inicie sesión o use 'Olvidé mi contraseña'."), 403)
-        body = _body()
-        icp = request.env["ir.config_parameter"].sudo()
-        key = icp.get_param("aq_admin_portal.setup_key")
-        if key and (body.get("setup_key") or "") != key:
-            return _error(_("Clave de configuración incorrecta."), 403)
-        for f in ("name", "login", "email", "password"):
-            if not body.get(f):
-                raise UserError(_("Falta el campo '%s'.") % f)
-        member = request.env["aq.portal.member"].sudo().search([("is_direction", "=", True)], limit=1)
-        user = User.create({"name": body["name"], "login": body["login"], "email": body["email"], "role": "direccion",
-                            "member_id": member.id or False})
-        user.set_password(body["password"], must_change=False)
-        _log(user, "create", resource="users", model="aq.portal.user", res_id=user.id, summary=_("Configuración inicial: primer usuario de Dirección"))
-        _, token = User.authenticate(body["login"], body["password"], ip=_ip(), user_agent=request.httprequest.headers.get("User-Agent"))
-        return _json({"token": token, "user": user.to_public_dict()}, status=201)
-
     @portal_route(API + "/auth/logout", methods=["POST"])
     def logout(self, user):
         request.env["aq.portal.user"].sudo().logout_token(_token())
@@ -661,57 +631,6 @@ class PortalApi(http.Controller):
     @portal_route(API + "/alerts/recompute", methods=["POST"], roles=["direccion", "coordinacion"])
     def recompute_alerts(self, user):
         request.env["aq.portal.alert"].sudo().with_context(portal_user_id=user.id).cron_daily()
-        return _json({"ok": True})
-
-    # ------------------------------------------------------------------ usuarios del portal (solo Dirección)
-    @portal_route(API + "/users", methods=["GET"], roles=["direccion"])
-    def users_list(self, user):
-        users = request.env["aq.portal.user"].sudo().with_context(active_test=False).search([], order="name")
-        return _json({"users": [u.to_public_dict() for u in users]})
-
-    @portal_route(API + "/users", methods=["POST"], roles=["direccion"])
-    def users_create(self, user):
-        body = _body()
-        vals = {k: body.get(k) for k in ("name", "login", "email", "role", "member_id", "notify_alerts") if k in body}
-        if isinstance(vals.get("member_id"), dict):
-            vals["member_id"] = vals["member_id"].get("id")
-        u = request.env["aq.portal.user"].sudo().create(vals)
-        if body.get("password"):
-            u.set_password(body["password"], must_change=True)
-        if body.get("send_invitation", True):
-            u.action_send_reset_email()
-        _log(user, "create", resource="users", model="aq.portal.user", res_id=u.id, summary=u.login)
-        return _json({"user": u.to_public_dict()}, status=201)
-
-    @portal_route(API + "/users/<int:uid>", methods=["PUT"], roles=["direccion"])
-    def users_write(self, user, uid):
-        u = request.env["aq.portal.user"].sudo().with_context(active_test=False).browse(uid).exists()
-        if not u:
-            return _error(_("Usuario no encontrado"), 404)
-        body = _body()
-        vals = {k: body.get(k) for k in ("name", "login", "email", "role", "member_id", "active", "notify_alerts") if k in body}
-        if isinstance(vals.get("member_id"), dict):
-            vals["member_id"] = vals["member_id"].get("id")
-        if u.id == user.id and vals.get("role") and vals["role"] != "direccion":
-            raise UserError(_("No puede quitarse a sí mismo el rol de Dirección."))
-        u.write(vals)
-        if body.get("password"):
-            u.set_password(body["password"], must_change=True)
-        _log(user, "write", resource="users", model="aq.portal.user", res_id=u.id, summary=u.login, changes={k: v for k, v in body.items() if k != "password"})
-        return _json({"user": u.to_public_dict()})
-
-    @portal_route(API + "/users/<int:uid>/send-reset", methods=["POST"], roles=["direccion"])
-    def users_send_reset(self, user, uid):
-        u = request.env["aq.portal.user"].sudo().browse(uid).exists()
-        if not u:
-            return _error(_("Usuario no encontrado"), 404)
-        u.action_send_reset_email()
-        _log(user, "action", resource="users", model="aq.portal.user", res_id=u.id, summary=_("Enlace de restablecimiento enviado"))
-        return _json({"ok": True})
-
-    @portal_route(API + "/users/<int:uid>/sessions", methods=["DELETE"], roles=["direccion"])
-    def users_kill_sessions(self, user, uid):
-        request.env["aq.portal.session"].sudo().search([("user_id", "=", uid)]).write({"active": False})
         return _json({"ok": True})
 
     @portal_route(API + "/me/preferences", methods=["PUT"])

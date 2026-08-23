@@ -34,7 +34,11 @@
     <menuitem id="menu_aq_portal_sec_admin" name="Administración" parent="menu_aq_portal_root" sequence="50"/>
     <menuitem id="menu_res_members" name="Integrantes del equipo" parent="menu_aq_portal_sec_admin" action="action_res_members" sequence="20"/>
     <menuitem id="menu_res_audit" name="Bitácora de auditoría" parent="menu_aq_portal_sec_admin" action="action_res_audit" sequence="30"/>
-    <menuitem id="menu_aq_portal_users" name="Usuarios externos del portal" parent="menu_aq_portal_sec_admin" action="action_aq_portal_user" sequence="5"/>
     <menuitem id="menu_res_meetings" name="Reuniones, minutas y revisiones administrativas" parent="menu_aq_portal_sec_prioritarias" action="action_res_meetings" sequence="25"/>
     <menuitem id="menu_res_clients" name="Clientes (directorio)" parent="menu_aq_portal_sec_prioritarias" action="action_res_clients" sequence="75"/>
+    <menuitem id="menu_aq_portal_config" name="Configuración del portal" parent="menu_aq_portal_root" sequence="90"/>
+    <menuitem id="menu_aq_portal_users" name="Usuarios del portal" parent="menu_aq_portal_config" action="action_aq_portal_user" sequence="10"/>
+    <menuitem id="menu_aq_portal_sessions" name="Sesiones activas" parent="menu_aq_portal_config" action="action_aq_portal_session" sequence="20"/>
+    <menuitem id="menu_aq_portal_members_cfg" name="Integrantes del equipo" parent="menu_aq_portal_config" action="action_res_members" sequence="30"/>
+    <menuitem id="menu_aq_portal_params" name="Parámetros del portal" parent="menu_aq_portal_config" action="action_aq_portal_params" sequence="40"/>
 </odoo>

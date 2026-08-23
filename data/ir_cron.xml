@@ -9,4 +9,12 @@
         <field name="interval_type">days</field>
         <field name="active" eval="True"/>
     </record>
+    <record id="cron_portal_sessions_gc" model="ir.cron">
+        <field name="name">Portal administrativo: limpiar sesiones expiradas</field>
+        <field name="model_id" ref="model_aq_portal_session"/>
+        <field name="state">code</field>
+        <field name="code">model._gc_sessions()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+    </record>
 </odoo>

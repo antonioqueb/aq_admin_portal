@@ -1,10 +1,6 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_model_aq_portal_member_manager,aq.portal.member manager,aq_admin_portal.model_aq_portal_member,aq_admin_portal.group_aq_portal_manager,1,1,1,1
 access_model_aq_portal_member_user,aq.portal.member user,aq_admin_portal.model_aq_portal_member,base.group_user,1,0,0,0
-access_model_aq_portal_user_manager,aq.portal.user manager,aq_admin_portal.model_aq_portal_user,aq_admin_portal.group_aq_portal_manager,1,1,1,1
-access_model_aq_portal_user_user,aq.portal.user user,aq_admin_portal.model_aq_portal_user,base.group_user,1,0,0,0
-access_model_aq_portal_session_manager,aq.portal.session manager,aq_admin_portal.model_aq_portal_session,aq_admin_portal.group_aq_portal_manager,1,1,1,1
-access_model_aq_portal_session_user,aq.portal.session user,aq_admin_portal.model_aq_portal_session,base.group_user,1,0,0,0
 access_model_aq_portal_project_manager,aq.portal.project manager,aq_admin_portal.model_aq_portal_project,aq_admin_portal.group_aq_portal_manager,1,1,1,1
 access_model_aq_portal_project_user,aq.portal.project user,aq_admin_portal.model_aq_portal_project,base.group_user,1,0,0,0
 access_model_aq_portal_project_date_manager,aq.portal.project.date manager,aq_admin_portal.model_aq_portal_project_date,aq_admin_portal.group_aq_portal_manager,1,1,1,1
@@ -83,3 +79,5 @@ access_model_aq_portal_followup_manager,aq.portal.followup manager,aq_admin_port
 access_model_aq_portal_followup_user,aq.portal.followup user,aq_admin_portal.model_aq_portal_followup,base.group_user,1,0,0,0
 access_model_aq_portal_meeting_manager,aq.portal.meeting manager,aq_admin_portal.model_aq_portal_meeting,aq_admin_portal.group_aq_portal_manager,1,1,1,1
 access_model_aq_portal_meeting_user,aq.portal.meeting user,aq_admin_portal.model_aq_portal_meeting,base.group_user,1,0,0,0
+access_model_aq_portal_user_manager,aq.portal.user manager,aq_admin_portal.model_aq_portal_user,aq_admin_portal.group_aq_portal_manager,1,1,1,1
+access_model_aq_portal_session_manager,aq.portal.session manager,aq_admin_portal.model_aq_portal_session,aq_admin_portal.group_aq_portal_manager,1,1,1,1

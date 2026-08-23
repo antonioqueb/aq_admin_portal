@@ -77,11 +77,6 @@ export const api = {
   alerts: () => call('GET', '/alerts'),
   dismissAlert: (id: number) => call('POST', `/alerts/${id}/dismiss`),
   recomputeAlerts: () => call('POST', '/alerts/recompute'),
-  users: () => call('GET', '/users'),
-  createUser: (vals: any) => call('POST', '/users', vals),
-  updateUser: (id: number, vals: any) => call('PUT', `/users/${id}`, vals),
-  sendReset: (id: number) => call('POST', `/users/${id}/send-reset`),
-  killSessions: (id: number) => call('DELETE', `/users/${id}/sessions`),
   prefs: (vals: any) => call('PUT', '/me/preferences', vals),
 }
 
