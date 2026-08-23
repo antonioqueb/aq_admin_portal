@@ -1,5 +1,6 @@
 import logging
 from odoo import api, fields, models, _
+from .branding import SEVERITY_STYLE
 
 _logger = logging.getLogger(__name__)
 
@@ -194,13 +195,23 @@ class Alert(models.Model):
 
     def _send_digest(self):
         users = self.env["aq.portal.user"].search([("active", "=", True), ("notify_alerts", "=", True), ("role", "in", ("direccion", "coordinacion"))])
-        alerts = self.search([("active", "=", True), ("dismissed", "=", False)], limit=60)
+        alerts = self.search([("active", "=", True), ("dismissed", "=", False)], limit=80)
         if not users or not alerts:
             return
-        rows = "".join("<li><b>[%s]</b> %s</li>" % (dict(self._fields["severity"].selection)[a.severity], a.name) for a in alerts)
-        base = self.env["aq.portal.user"]._portal_base_url()
-        body = "<p>Resumen diario de alertas del portal administrativo:</p><ul>%s</ul><p><a href='%s'>Abrir el portal</a></p>" % (rows, base)
+        Brand = self.env["aq.portal.branding"]
+        counts = {s: len(alerts.filtered(lambda a: a.severity == s)) for s in ("4", "3", "2", "1")}
+        summary = ("<table role='presentation' cellpadding='0' cellspacing='0' style='width:100%%;border-collapse:separate;border-spacing:8px 0;margin:4px -8px 0'><tr>"
+                   + "".join("<td style='background:#16161a;border:1px solid #2a2a32;border-radius:8px;padding:12px;text-align:center;width:25%%'>"
+                             "<div style=\"font-family:'Bebas Neue',Impact,Arial,sans-serif;font-size:28px;color:%s;line-height:1\">%d</div>"
+                             "<div style='font-family:Oxanium,Roboto,Arial,sans-serif;font-size:10px;letter-spacing:.12em;color:#9a9aa3;margin-top:4px'>%s</div></td>"
+                             % (SEVERITY_STYLE[s][1], counts[s], SEVERITY_STYLE[s][0]) for s in ("4", "3", "2", "1"))
+                   + "</tr></table>")
+        body = summary + Brand.alert_rows(alerts)
+        today = fields.Date.today().strftime("%d/%m/%Y")
+        html = Brand.wrap(_("Resumen diario de alertas"), body, cta_label=_("Abrir el portal"), cta_url=Brand.portal_url() + "/alerts",
+                          subtitle=_("%s · %d alertas activas que requieren seguimiento") % (today, len(alerts)),
+                          preheader=_("%d alertas activas · %d críticas · %d urgentes") % (len(alerts), counts["4"], counts["3"]))
         for u in users:
             self.env["mail.mail"].sudo().create({
-                "subject": _("Portal AlphaQueb · %d alertas activas") % len(alerts), "email_to": u.email, "body_html": body,
+                "subject": _("AlphaQueb · %d alertas activas (%d críticas)") % (len(alerts), counts["4"]), "email_to": u.email, "body_html": html,
             }).send()

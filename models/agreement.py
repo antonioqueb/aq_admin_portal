@@ -101,9 +101,12 @@ class Agreement(models.Model):
                 "note": _("Se solicitó actualización a %s.") % (a.executor_id.name or "-"), "member_id": a.executor_id.id,
             })
             if a.executor_id.email:
+                Brand = self.env["aq.portal.branding"]
                 self.env["mail.mail"].sudo().create({
                     "subject": _("Solicitud de actualización: %s") % a.name, "email_to": a.executor_id.email,
-                    "body_html": _("<p>Se solicita actualización del pendiente <b>%s</b> (fecha compromiso: %s).</p>") % (a.name, a.due_date or "-"),
+                    "body_html": Brand.wrap(_("Solicitud de actualización"),
+                                            _("<p>Se solicita actualización del pendiente <b>%s</b> (fecha compromiso: %s).</p>") % (a.name, a.due_date or "-"),
+                                            _("Actualizar pendiente"), Brand.portal_url("agreements", a.id)),
                 }).send()
         return True
 

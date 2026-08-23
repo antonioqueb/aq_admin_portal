@@ -180,8 +180,10 @@ class Project(models.Model):
 
     def _notify_member(self, member, subject, body):
         if member and member.email:
+            Brand = self.env["aq.portal.branding"]
             self.env["mail.mail"].sudo().create({
-                "subject": subject, "email_to": member.email, "body_html": "<p>%s</p>" % body,
+                "subject": subject, "email_to": member.email,
+                "body_html": Brand.wrap(subject, "<p>%s</p>" % body, _("Abrir proyecto"), Brand.portal_url("projects", self.id)),
             }).send()
 
 

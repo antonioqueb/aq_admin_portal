@@ -1,24 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="mail_template_portal_reset" model="mail.template">
-        <field name="name">Portal administrativo: restablecer contraseña</field>
+        <field name="name">Portal administrativo: acceso / restablecer contraseña</field>
         <field name="model_id" ref="aq_admin_portal.model_aq_portal_user"/>
         <field name="subject">Acceso al Portal Administrativo AlphaQueb</field>
         <field name="email_to">{{ object.email }}</field>
         <field name="body_html" type="html">
-<div style="font-family: Arial, sans-serif; color:#333;">
-    <p>Hola <t t-out="object.name"/>,</p>
-    <p>Recibiste este correo porque se creó tu cuenta o se solicitó restablecer tu contraseña del
-       <b>Portal de Control Administrativo de AlphaQueb Consulting</b>.</p>
-    <p style="margin:24px 0;">
-        <a t-att-href="ctx.get('reset_link')" style="background:#714B67;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;">
-            Establecer mi contraseña
-        </a>
-    </p>
-    <p>Si el botón no funciona, copia este enlace en tu navegador:<br/>
-       <t t-out="ctx.get('reset_link')"/></p>
-    <p>El enlace vence en 2 horas. Si no solicitaste este acceso, ignora este mensaje.</p>
-    <p>— AlphaQueb Consulting</p>
+<div style="background:#0a0a0c;padding:32px 12px;font-family:Roboto,Arial,Helvetica,sans-serif;color:#f3f3ef">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;margin:0 auto;background:#111114;border:1px solid #2a2a32;border-radius:12px;overflow:hidden">
+    <tr><td style="padding:22px 28px;border-bottom:1px solid #2a2a32;background:#0a0a0c">
+      <img t-att-src="object.env['aq.portal.branding'].base_url() + '/aq_admin_portal/static/description/logo.png'" alt="AlphaQueb" height="44" style="height:44px;display:block"/>
+    </td></tr>
+    <tr><td style="padding:26px 28px 6px">
+      <div style="font-family:Oxanium,Roboto,Arial,sans-serif;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#b9e856">Portal de control administrativo</div>
+      <h1 style="margin:6px 0 4px;font-family:'Bebas Neue',Impact,'Arial Narrow',Arial,sans-serif;font-weight:400;font-size:30px;letter-spacing:.03em;color:#f3f3ef;line-height:1.1">Acceso al portal</h1>
+    </td></tr>
+    <tr><td style="padding:6px 28px 26px;font-size:14px;line-height:1.55">
+      <p>Hola <t t-out="object.name"/>,</p>
+      <p>Recibiste este correo porque se creó tu cuenta o se solicitó restablecer tu contraseña del
+         <b>Portal de Control Administrativo de AlphaQueb Consulting</b>.</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 8px"><tr><td style="background:#b9e856;border-radius:6px">
+        <a t-att-href="ctx.get('reset_link')" style="display:inline-block;padding:12px 22px;color:#0a0a0c;font-weight:700;text-decoration:none;font-family:Oxanium,Roboto,Arial,sans-serif;letter-spacing:.04em;text-transform:uppercase;font-size:13px">Establecer mi contraseña</a>
+      </td></tr></table>
+      <p style="color:#9a9aa3;font-size:12px">Si el botón no funciona, copia este enlace en tu navegador:<br/><t t-out="ctx.get('reset_link')"/></p>
+      <p style="color:#9a9aa3;font-size:12px">El enlace vence en 2 horas. Si no solicitaste este acceso, ignora este mensaje.</p>
+    </td></tr>
+    <tr><td style="padding:16px 28px;border-top:1px solid #2a2a32;background:#0a0a0c;font-family:Oxanium,Roboto,Arial,sans-serif;font-size:11px;color:#9a9aa3;letter-spacing:.04em">
+      ALPHAQUEB CONSULTING · <a href="https://alphaqueb.com" style="color:#b9e856;text-decoration:none">alphaqueb.com</a> · Mensaje automático del portal administrativo
+    </td></tr>
+  </table>
 </div>
         </field>
         <field name="auto_delete" eval="False"/>

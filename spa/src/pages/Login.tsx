@@ -14,7 +14,7 @@ export default function Login() {
   return (
     <div className="login">
       <form className="box" onSubmit={submit}>
-        <img src="/aq_admin_portal/static/description/icon.png" width={44} alt="" style={{ borderRadius: 8, marginBottom: 10 }} />
+        <img className="logo" src="/aq_admin_portal/static/description/logo.png" alt="AlphaQueb" />
         <h1>Portal administrativo</h1>
         <p className="sub">AlphaQueb Consulting · Control administrativo y operativo</p>
         {err && <div className="alert err">{err}</div>}

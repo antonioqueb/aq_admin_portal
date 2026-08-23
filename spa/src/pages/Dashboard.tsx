@@ -21,11 +21,12 @@ export default function Dashboard() {
   const err = (n: number) => n > 0 ? 'err' : 'ok'
   return (
     <div>
-      <div className="toolbar">
-        <div><h1>Tablero administrativo y de Dirección</h1><div style={{ color: '#6b7280', fontSize: 12 }}>Estado real de la empresa · hoy {fmtDate(d.period.today)}</div></div>
-        <span className="spacer" />
+      <div className="hero">
+        <div><div className="tag">AlphaQueb Consulting</div><h1>Estado real de la empresa</h1><div className="pulse">Actualizado hoy {fmtDate(d.period.today)} · {s.alerts_active} alertas activas · {s.overdue_agreements} pendientes vencidos</div></div>
+        <div className="toolbar" style={{ margin: 0 }}>
         <label style={{ fontSize: 12 }}>Periodo</label><input type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ width: 150 }} /><input type="date" value={to} onChange={e => setTo(e.target.value)} style={{ width: 150 }} />
         {(user?.role === 'direccion' || user?.role === 'coordinacion') && <button className="btn secondary small" onClick={() => api.recomputeAlerts().then(() => { toast('Alertas recalculadas', 'ok'); api.dashboard(from, to).then(setD) })}>Recalcular alertas</button>}
+        </div>
       </div>
 
       <h3>Proyectos y pendientes</h3>

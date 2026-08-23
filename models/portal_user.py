@@ -188,11 +188,11 @@ class PortalUser(models.Model):
             if template:
                 template.sudo().with_context(reset_link=link).send_mail(user.id, force_send=True)
             else:
+                Brand = self.env["aq.portal.branding"]
                 self.env["mail.mail"].sudo().create({
-                    "subject": _("Restablecer contraseña · Portal AlphaQueb"),
-                    "email_to": user.email,
-                    "body_html": _("<p>Hola %s,</p><p>Para restablecer tu contraseña entra aquí: "
-                                   "<a href='%s'>%s</a></p><p>El enlace vence en 2 horas.</p>") % (user.name, link, link),
+                    "subject": _("Restablecer contraseña · Portal AlphaQueb"), "email_to": user.email,
+                    "body_html": Brand.wrap(_("Acceso al portal"), _("<p>Hola %s,</p><p>Usa el botón para establecer tu contraseña. El enlace vence en 2 horas.</p>") % user.name,
+                                            _("Establecer contraseña"), link),
                 }).send()
             _logger.info("Enlace de restablecimiento enviado a %s", user.email)
         return True

@@ -11,6 +11,7 @@ export default function Forgot() {
   return (
     <div className="login">
       <form className="box" onSubmit={submit}>
+        <img className="logo" src="/aq_admin_portal/static/description/logo.png" alt="AlphaQueb" />
         <h1>Recuperar contraseña</h1>
         <p className="sub">Te enviaremos un enlace para establecer una nueva contraseña.</p>
         {msg && <div className="alert ok">{msg}</div>}

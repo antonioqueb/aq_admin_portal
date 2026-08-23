@@ -14,6 +14,7 @@ export default function Reset() {
   return (
     <div className="login">
       <form className="box" onSubmit={submit}>
+        <img className="logo" src="/aq_admin_portal/static/description/logo.png" alt="AlphaQueb" />
         <h1>Nueva contraseña</h1>
         <p className="sub">Mínimo 8 caracteres, combinando letras y números.</p>
         {!token && <div className="alert err">Enlace inválido: falta el token.</div>}

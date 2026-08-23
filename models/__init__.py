@@ -1,4 +1,5 @@
 from . import mixin
+from . import branding
 from . import member
 from . import portal_user
 from . import project

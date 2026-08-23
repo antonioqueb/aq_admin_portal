@@ -42,8 +42,10 @@ class Meeting(models.Model):
             m.open_agreement_count = len(m.agreement_ids.filtered(lambda a: a.state not in ("cerrado", "cancelado")))
 
     def _mail(self, subject, body, members):
+        Brand = self.env["aq.portal.branding"]
+        html = Brand.wrap(subject, body, _("Ver en el portal"), Brand.portal_url("meetings", self.id))
         for mem in members.filtered("email"):
-            self.env["mail.mail"].sudo().create({"subject": subject, "email_to": mem.email, "body_html": body}).send()
+            self.env["mail.mail"].sudo().create({"subject": subject, "email_to": mem.email, "body_html": html}).send()
 
     def action_convene(self):
         """Facultad 6: convocar revisiones administrativas (envía convocatoria a los integrantes)."""

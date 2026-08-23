@@ -197,6 +197,8 @@ class Report(models.Model):
     def action_send_direction(self):
         for r in self:
             r.write({"sent_to_direction": True, "sent_date": fields.Date.today()})
+            Brand = self.env["aq.portal.branding"]
+            html = Brand.wrap(r.name, r.content, cta_label=_("Ver en el portal"), cta_url=Brand.portal_url("reports", r.id))
             for u in self.env["aq.portal.user"].search([("role", "=", "direccion"), ("active", "=", True)]):
-                self.env["mail.mail"].sudo().create({"subject": r.name, "email_to": u.email, "body_html": r.content}).send()
+                self.env["mail.mail"].sudo().create({"subject": r.name, "email_to": u.email, "body_html": html}).send()
         return True
