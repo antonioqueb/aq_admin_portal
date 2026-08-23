@@ -166,7 +166,7 @@ Las 16 del documento están en **Configuración → Automatizaciones** (`aq.ops.
 o integradas en el flujo (bloqueo de liberaciones incompletas, revisión post-liberación, tareas desde minutas tras confirmación).
 
 ## Copiloto de IA — DeepSeek por API
-**Configuración → Integraciones → DeepSeek**: URL base `https://api.deepseek.com`, modelo `deepseek-chat`, API key, activar.
+**Clave**: variable de entorno `DEEPSEEK_API_KEY` en el servidor (recomendado; no se guarda en BD ni en el repositorio). Orden de prioridad: `DEEPSEEK_API_KEY` → parámetro del sistema `aq_ops.deepseek_api_key` → campo del registro en *Integraciones → DeepSeek*. Opcionales: `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL` (por defecto `https://api.deepseek.com`, `deepseek-chat`). Todas las funciones de IA pasan por `aq.ops.ai.chat()`; `GET /ops/ai/status` muestra la fuente activa.
 Usa el endpoint compatible `/chat/completions`. Capacidades: resumir reuniones y proponer acuerdos/tareas/preguntas/riesgos,
 explicar por qué un proyecto está en rojo, recomendar siguiente acción, detectar duplicados, sugerir dependencias, comparar
 alcance con una solicitud, preparar casos de prueba, resumir incidentes, borrador de reporte. Sin clave usa heurísticas locales.

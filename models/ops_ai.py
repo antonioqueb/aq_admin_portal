@@ -2,6 +2,7 @@
 """AlphaOps · Copiloto de IA (DeepSeek por API). Solo propone; nunca aprueba, acepta, autoriza, cambia fechas ni cierra."""
 import json
 import logging
+import os
 import re
 import requests
 
@@ -20,28 +21,46 @@ class OpsAI(models.AbstractModel):
 
     @api.model
     def _integration(self):
-        return self.env["aq.ops.integration"].sudo().search([("kind", "=", "deepseek"), ("enabled", "=", True)], limit=1)
+        return self.env["aq.ops.integration"].sudo().search([("kind", "=", "deepseek")], limit=1)
+
+    @api.model
+    def _config(self):
+        """Única fuente de configuración para TODAS las herramientas de IA.
+        La API key se toma, en este orden: variable de entorno DEEPSEEK_API_KEY (recomendado; nunca se guarda en BD),
+        parámetro del sistema aq_ops.deepseek_api_key, y por último el campo del registro de integración."""
+        i = self._integration()
+        icp = self.env["ir.config_parameter"].sudo()
+        key = (os.environ.get("DEEPSEEK_API_KEY") or icp.get_param("aq_ops.deepseek_api_key") or (i.api_key if i else "") or "").strip()
+        enabled = bool(key) and (not i or i.enabled or bool(os.environ.get("DEEPSEEK_API_KEY")))
+        return {"key": key, "enabled": enabled, "base_url": (os.environ.get("DEEPSEEK_BASE_URL") or (i.base_url if i else "") or "https://api.deepseek.com").rstrip("/"),
+                "model": os.environ.get("DEEPSEEK_MODEL") or (i.model if i else "") or "deepseek-chat", "record": i,
+                "source": "env" if os.environ.get("DEEPSEEK_API_KEY") else "param" if icp.get_param("aq_ops.deepseek_api_key") else "record" if key else "none"}
 
     @api.model
     def available(self):
-        i = self._integration()
-        return bool(i and i.api_key)
+        return self._config()["enabled"]
+
+    @api.model
+    def status(self):
+        c = self._config()
+        return {"available": c["enabled"], "source": c["source"], "model": c["model"], "base_url": c["base_url"], "key_hint": ("…" + c["key"][-4:]) if c["key"] else ""}
 
     @api.model
     def chat(self, prompt, system=SYSTEM, json_mode=False, max_tokens=1500):
         """Llamada al endpoint compatible de DeepSeek (/chat/completions). Devuelve texto (o None sin integración)."""
-        i = self._integration()
-        if not i or not i.api_key:
+        c = self._config()
+        if not c["enabled"]:
             return None
-        url = (i.base_url or "https://api.deepseek.com").rstrip("/") + "/chat/completions"
-        body = {"model": i.model or "deepseek-chat", "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+        url = c["base_url"] + "/chat/completions"
+        body = {"model": c["model"], "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
                 "temperature": 0.2, "max_tokens": max_tokens}
         if json_mode:
             body["response_format"] = {"type": "json_object"}
         try:
-            r = requests.post(url, json=body, headers={"Authorization": "Bearer %s" % i.api_key, "Content-Type": "application/json"}, timeout=60)
+            r = requests.post(url, json=body, headers={"Authorization": "Bearer %s" % c["key"], "Content-Type": "application/json"}, timeout=60)
             r.raise_for_status()
-            i.write({"last_used": fields.Datetime.now()})
+            if c["record"]:
+                c["record"].write({"last_used": fields.Datetime.now()})
             return r.json()["choices"][0]["message"]["content"]
         except requests.RequestException as e:
             _logger.warning("DeepSeek no disponible: %s", e)

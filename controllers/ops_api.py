@@ -569,6 +569,13 @@ class OpsApi(http.Controller):
     def _ai(self):
         return request.env["aq.ops.ai"].sudo()
 
+    @portal_route(OPS + "/ai/status", methods=["GET"], app="ops")
+    def ai_status(self, user):
+        st = self._ai().status()
+        if _effective_role(user) != "platform_owner":
+            st.pop("key_hint", None)
+        return _json(st)
+
     @portal_route(OPS + "/ai/meetings/<int:mid>/summarize", methods=["POST"], app="ops")
     def ai_meeting(self, user, mid):
         m = _get(OPS_RESOURCES["meetings"], user, mid, "write")
