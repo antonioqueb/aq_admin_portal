@@ -2,8 +2,8 @@
 """AlphaOps · motor de automatizaciones, agregados de pantallas y KPIs operativos."""
 import json
 from datetime import timedelta
-from odoo import api, fields, models, _
-from odoo.exceptions import UserError
+from odoo import api, fields, models, SUPERUSER_ID, _
+from odoo.exceptions import AccessError, UserError
 from .ops_core import ACTIVE_STAGES, PROJECT_STAGES
 from .ops_work import DONE_STATES
 
@@ -29,6 +29,36 @@ class OpsEngine(models.AbstractModel):
     def _N(self):
         return self.env["aq.ops.notification"]
 
+    # ------------------------------------------------------------ importaciones a nombre de OdooBot
+    BOT_MODELS = ("aq.ops.", "aq.portal.member", "res.partner", "ir.attachment")
+
+    def _bot_check(self, model):
+        if not self.env.user.has_group("aq_admin_portal.group_aq_portal_manager"):
+            raise AccessError(_("Solo administradores del portal pueden importar a nombre de OdooBot."))
+        if not any(model == m or (m.endswith(".") and model.startswith(m)) for m in self.BOT_MODELS):
+            raise AccessError(_("Modelo no permitido para importación: %s") % model)
+
+    @api.model
+    def bot_create(self, model, vals_list):
+        """Crea registros como OdooBot (superusuario). Pensado para migraciones (p. ej. Taiga)."""
+        self._bot_check(model)
+        recs = self.env(user=SUPERUSER_ID)[model].with_context(portal_import=True, mail_create_nosubscribe=True).create(vals_list)
+        return recs.ids
+
+    @api.model
+    def bot_write(self, model, ids, vals):
+        self._bot_check(model)
+        self.env(user=SUPERUSER_ID)[model].browse(ids).with_context(portal_import=True).write(vals)
+        return True
+
+    @api.model
+    def bot_post(self, model, res_id, body):
+        self._bot_check(model)
+        rec = self.env(user=SUPERUSER_ID)[model].browse(res_id)
+        if hasattr(rec, "message_post"):
+            rec.message_post(body=body, message_type="comment")
+        return True
+
     @api.model
     def safe_partner(self, name):
         """Crea (o recupera) un cliente rellenando campos obligatorios sin valor por defecto (p. ej. personalizaciones como group_rfq)."""
@@ -51,6 +81,15 @@ class OpsEngine(models.AbstractModel):
                 elif f.type in ("integer", "float", "monetary"):
                     vals[fname] = 0
         return Partner.create(vals)
+
+    @api.model
+    def bot_partner(self, name, vals=None):
+        self._bot_check("res.partner")
+        eng = self.env(user=SUPERUSER_ID)["aq.ops.engine"]
+        p = eng.safe_partner(name)
+        if vals:
+            p.write(vals)
+        return p.id
 
     @api.model
     def seed_getting_ready(self):
