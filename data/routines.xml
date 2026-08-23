@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="routine_diario_01" model="aq.portal.routine">
+        <field name="name">Revisar vencimientos y asuntos urgentes</field>
+        <field name="frequency">diario</field>
+        <field name="sequence">10</field>
+        <field name="link_resource">dashboard</field>
+    </record>
+    <record id="routine_diario_02" model="aq.portal.routine">
+        <field name="name">Actualizar movimientos de facturación, cobros y pagos</field>
+        <field name="frequency">diario</field>
+        <field name="sequence">20</field>
+        <field name="link_resource">invoices</field>
+    </record>
+    <record id="routine_diario_03" model="aq.portal.routine">
+        <field name="name">Solicitar información pendiente</field>
+        <field name="frequency">diario</field>
+        <field name="sequence">30</field>
+        <field name="link_resource">agreements</field>
+    </record>
+    <record id="routine_diario_04" model="aq.portal.routine">
+        <field name="name">Registrar acuerdos relevantes</field>
+        <field name="frequency">diario</field>
+        <field name="sequence">40</field>
+        <field name="link_resource">agreements</field>
+    </record>
+    <record id="routine_diario_05" model="aq.portal.routine">
+        <field name="name">Dar seguimiento a compromisos próximos a vencer</field>
+        <field name="frequency">diario</field>
+        <field name="sequence">50</field>
+        <field name="link_resource">calendar</field>
+    </record>
+    <record id="routine_diario_06" model="aq.portal.routine">
+        <field name="name">Escalar riesgos que requieran decisión</field>
+        <field name="frequency">diario</field>
+        <field name="sequence">60</field>
+        <field name="link_resource">risks</field>
+    </record>
+    <record id="routine_semanal_01" model="aq.portal.routine">
+        <field name="name">Revisar el portafolio de proyectos</field>
+        <field name="frequency">semanal</field>
+        <field name="sequence">10</field>
+        <field name="link_resource">projects</field>
+    </record>
+    <record id="routine_semanal_02" model="aq.portal.routine">
+        <field name="name">Confirmar siguientes acciones y responsables</field>
+        <field name="frequency">semanal</field>
+        <field name="sequence">20</field>
+        <field name="link_resource">projects</field>
+    </record>
+    <record id="routine_semanal_03" model="aq.portal.routine">
+        <field name="name">Revisar facturas por emitir</field>
+        <field name="frequency">semanal</field>
+        <field name="sequence">30</field>
+        <field name="link_resource">invoices</field>
+    </record>
+    <record id="routine_semanal_04" model="aq.portal.routine">
+        <field name="name">Revisar cartera vencida</field>
+        <field name="frequency">semanal</field>
+        <field name="sequence">40</field>
+        <field name="link_resource">receivables</field>
+    </record>
+    <record id="routine_semanal_05" model="aq.portal.routine">
+        <field name="name">Revisar pagos próximos</field>
+        <field name="frequency">semanal</field>
+        <field name="sequence">50</field>
+        <field name="link_resource">payables</field>
+    </record>
+    <record id="routine_semanal_06" model="aq.portal.routine">
+        <field name="name">Revisar prospectos sin seguimiento</field>
+        <field name="frequency">semanal</field>
+        <field name="sequence">60</field>
+        <field name="link_resource">prospects</field>
+    </record>
+    <record id="routine_semanal_07" model="aq.portal.routine">
+        <field name="name">Entregar resumen ejecutivo de pendientes, avances y riesgos</field>
+        <field name="frequency">semanal</field>
+        <field name="sequence">70</field>
+        <field name="link_resource">reports</field>
+    </record>
+    <record id="routine_mensual_01" model="aq.portal.routine">
+        <field name="name">Cierre de facturación</field>
+        <field name="frequency">mensual</field>
+        <field name="sequence">10</field>
+        <field name="link_resource">invoices</field>
+    </record>
+    <record id="routine_mensual_02" model="aq.portal.routine">
+        <field name="name">Estado de cuentas por cobrar y pagar</field>
+        <field name="frequency">mensual</field>
+        <field name="sequence">20</field>
+        <field name="link_resource">receivables</field>
+    </record>
+    <record id="routine_mensual_03" model="aq.portal.routine">
+        <field name="name">Conciliación de horas ejecutadas, facturadas y pagadas</field>
+        <field name="frequency">mensual</field>
+        <field name="sequence">30</field>
+        <field name="link_resource">hours</field>
+    </record>
+    <record id="routine_mensual_04" model="aq.portal.routine">
+        <field name="name">Revisión de contratos y vencimientos</field>
+        <field name="frequency">mensual</field>
+        <field name="sequence">40</field>
+        <field name="link_resource">legal</field>
+    </record>
+    <record id="routine_mensual_05" model="aq.portal.routine">
+        <field name="name">Estado de proyectos</field>
+        <field name="frequency">mensual</field>
+        <field name="sequence">50</field>
+        <field name="link_resource">projects</field>
+    </record>
+    <record id="routine_mensual_06" model="aq.portal.routine">
+        <field name="name">Estado de prospectos</field>
+        <field name="frequency">mensual</field>
+        <field name="sequence">60</field>
+        <field name="link_resource">prospects</field>
+    </record>
+    <record id="routine_mensual_07" model="aq.portal.routine">
+        <field name="name">Revisión de proveedores y renovaciones</field>
+        <field name="frequency">mensual</field>
+        <field name="sequence">70</field>
+        <field name="link_resource">vendors</field>
+    </record>
+    <record id="routine_mensual_08" model="aq.portal.routine">
+        <field name="name">Reporte administrativo para Dirección</field>
+        <field name="frequency">mensual</field>
+        <field name="sequence">80</field>
+        <field name="link_resource">reports</field>
+    </record>
+</odoo>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_aq_portal_root" name="Portal Administrativo" sequence="45" web_icon="aq_admin_portal,static/description/icon.png" groups="aq_admin_portal.group_aq_portal_manager"/>
+    <menuitem id="menu_aq_portal_open" name="Abrir portal web" parent="menu_aq_portal_root" sequence="1" action="action_open_portal_url"/>
+    <menuitem id="menu_aq_portal_sec_prioritarias" name="1. Funciones prioritarias" parent="menu_aq_portal_root" sequence="10"/>
+    <menuitem id="menu_res_projects" name="Control maestro de proyectos" parent="menu_aq_portal_sec_prioritarias" action="action_res_projects" sequence="10"/>
+    <menuitem id="menu_res_agreements" name="Acuerdos y pendientes" parent="menu_aq_portal_sec_prioritarias" action="action_res_agreements" sequence="20"/>
+    <menuitem id="menu_res_invoices" name="Calendario de facturación" parent="menu_aq_portal_sec_prioritarias" action="action_res_invoices" sequence="30"/>
+    <menuitem id="menu_res_receivables" name="Cuentas por cobrar y cobranza" parent="menu_aq_portal_sec_prioritarias" action="action_res_receivables" sequence="40"/>
+    <menuitem id="menu_res_payables" name="Cuentas por pagar" parent="menu_aq_portal_sec_prioritarias" action="action_res_payables" sequence="50"/>
+    <menuitem id="menu_res_hours" name="Horas, alcances y trabajo facturable" parent="menu_aq_portal_sec_prioritarias" action="action_res_hours" sequence="60"/>
+    <menuitem id="menu_res_deliverables" name="Entregables y aceptación" parent="menu_aq_portal_sec_prioritarias" action="action_res_deliverables" sequence="65"/>
+    <menuitem id="menu_res_prospects" name="Control de prospectos" parent="menu_aq_portal_sec_prioritarias" action="action_res_prospects" sequence="70"/>
+    <menuitem id="menu_res_documents" name="Organización documental" parent="menu_aq_portal_sec_prioritarias" action="action_res_documents" sequence="80"/>
+    <menuitem id="menu_res_legal" name="Inventario legal / matriz de contratos" parent="menu_aq_portal_sec_prioritarias" action="action_res_legal" sequence="90"/>
+    <menuitem id="menu_aq_portal_sec_progresivas" name="2. Implementación progresiva" parent="menu_aq_portal_root" sequence="20"/>
+    <menuitem id="menu_res_templates" name="Biblioteca legal (formatos y modelos)" parent="menu_aq_portal_sec_progresivas" action="action_res_templates" sequence="10"/>
+    <menuitem id="menu_res_employees" name="Administración de personal (expedientes)" parent="menu_aq_portal_sec_progresivas" action="action_res_employees" sequence="20"/>
+    <menuitem id="menu_res_procedure_steps" name="Plantilla del procedimiento de proyectos" parent="menu_aq_portal_sec_progresivas" action="action_res_procedure_steps" sequence="30"/>
+    <menuitem id="menu_res_changes" name="Control de cambios y trabajo adicional" parent="menu_aq_portal_sec_progresivas" action="action_res_changes" sequence="40"/>
+    <menuitem id="menu_res_vendors" name="Proveedores, licencias y servicios recurrentes" parent="menu_aq_portal_sec_progresivas" action="action_res_vendors" sequence="50"/>
+    <menuitem id="menu_res_obligations" name="Calendario de obligaciones" parent="menu_aq_portal_sec_progresivas" action="action_res_obligations" sequence="60"/>
+    <menuitem id="menu_res_privacy" name="Privacidad y manejo de información" parent="menu_aq_portal_sec_progresivas" action="action_res_privacy" sequence="70"/>
+    <menuitem id="menu_aq_portal_sec_mediano" name="3. Mediano plazo" parent="menu_aq_portal_root" sequence="30"/>
+    <menuitem id="menu_res_risks" name="Matriz de riesgos" parent="menu_aq_portal_sec_mediano" action="action_res_risks" sequence="30"/>
+    <menuitem id="menu_res_manuals" name="Manuales y procedimientos internos" parent="menu_aq_portal_sec_mediano" action="action_res_manuals" sequence="40"/>
+    <menuitem id="menu_res_corporate" name="Gobierno corporativo" parent="menu_aq_portal_sec_mediano" action="action_res_corporate" sequence="50"/>
+    <menuitem id="menu_res_tenders" name="Gobierno y sector público" parent="menu_aq_portal_sec_mediano" action="action_res_tenders" sequence="60"/>
+    <menuitem id="menu_res_improvements" name="Mejora continua" parent="menu_aq_portal_sec_mediano" action="action_res_improvements" sequence="70"/>
+    <menuitem id="menu_aq_portal_sec_ritmo" name="4-5. Ritmo y entregables" parent="menu_aq_portal_root" sequence="40"/>
+    <menuitem id="menu_res_onboarding" name="Entregables de incorporación" parent="menu_aq_portal_sec_ritmo" action="action_res_onboarding" sequence="20"/>
+    <menuitem id="menu_res_routines" name="Catálogo de rutinas" parent="menu_aq_portal_sec_ritmo" action="action_res_routines" sequence="30"/>
+    <menuitem id="menu_res_reports" name="Reportes ejecutivos" parent="menu_aq_portal_sec_ritmo" action="action_res_reports" sequence="40"/>
+    <menuitem id="menu_aq_portal_sec_admin" name="Administración" parent="menu_aq_portal_root" sequence="50"/>
+    <menuitem id="menu_res_members" name="Integrantes del equipo" parent="menu_aq_portal_sec_admin" action="action_res_members" sequence="20"/>
+    <menuitem id="menu_res_audit" name="Bitácora de auditoría" parent="menu_aq_portal_sec_admin" action="action_res_audit" sequence="30"/>
+    <menuitem id="menu_aq_portal_users" name="Usuarios externos del portal" parent="menu_aq_portal_sec_admin" action="action_aq_portal_user" sequence="5"/>
+</odoo>

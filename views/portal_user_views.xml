@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_aq_portal_user_list" model="ir.ui.view">
+        <field name="name">aq.portal.user.list</field>
+        <field name="model">aq.portal.user</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="login"/>
+                <field name="email"/>
+                <field name="role"/>
+                <field name="member_id"/>
+                <field name="last_login"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_aq_portal_user_form" model="ir.ui.view">
+        <field name="name">aq.portal.user.form</field>
+        <field name="model">aq.portal.user</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_send_reset_email" type="object" string="Enviar enlace para establecer contraseña" class="btn-primary"/>
+                </header>
+                <sheet>
+                    <widget name="web_ribbon" title="Archivado" bg_color="text-bg-danger" invisible="active"/>
+                    <group>
+                        <group string="Identidad">
+                            <field name="name"/>
+                            <field name="login"/>
+                            <field name="email"/>
+                            <field name="role"/>
+                            <field name="member_id"/>
+                            <field name="active"/>
+                        </group>
+                        <group string="Seguridad">
+                            <field name="new_password" password="True"/>
+                            <field name="must_change_password"/>
+                            <field name="notify_alerts"/>
+                            <field name="last_login"/>
+                            <field name="failed_attempts"/>
+                            <field name="locked_until"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Sesiones">
+                            <field name="session_ids">
+                                <list editable="bottom">
+                                    <field name="create_date"/>
+                                    <field name="last_seen"/>
+                                    <field name="expires"/>
+                                    <field name="ip"/>
+                                    <field name="active"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+    <record id="action_aq_portal_user" model="ir.actions.act_window">
+        <field name="name">Usuarios externos del portal</field>
+        <field name="res_model">aq.portal.user</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Crea el primer usuario externo del portal</p>
+            <p>Estos usuarios no son usuarios de Odoo: tienen su propio login, contraseña y recuperación.</p>
+        </field>
+    </record>
+</odoo>

@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="onboarding_semana1_01" model="aq.portal.onboarding.deliverable">
+        <field name="name">Confirmación de accesos y herramientas</field>
+        <field name="phase">semana1</field>
+        <field name="sequence">10</field>
+        <field name="link_resource">members</field>
+    </record>
+    <record id="onboarding_semana1_02" model="aq.portal.onboarding.deliverable">
+        <field name="name">Lista de clientes, proyectos y responsables</field>
+        <field name="phase">semana1</field>
+        <field name="sequence">20</field>
+        <field name="link_resource">projects</field>
+    </record>
+    <record id="onboarding_semana1_03" model="aq.portal.onboarding.deliverable">
+        <field name="name">Identificación de asuntos urgentes</field>
+        <field name="phase">semana1</field>
+        <field name="sequence">30</field>
+        <field name="link_resource">agreements</field>
+    </record>
+    <record id="onboarding_semana1_04" model="aq.portal.onboarding.deliverable">
+        <field name="name">Lista inicial de documentos y fuentes de información</field>
+        <field name="phase">semana1</field>
+        <field name="sequence">40</field>
+        <field name="link_resource">documents</field>
+    </record>
+    <record id="onboarding_semana1_05" model="aq.portal.onboarding.deliverable">
+        <field name="name">Calendario inmediato de facturas, cobros y pagos</field>
+        <field name="phase">semana1</field>
+        <field name="sequence">50</field>
+        <field name="link_resource">calendar</field>
+    </record>
+    <record id="onboarding_dias15_01" model="aq.portal.onboarding.deliverable">
+        <field name="name">Primera versión del control maestro de proyectos</field>
+        <field name="phase">dias15</field>
+        <field name="sequence">10</field>
+        <field name="link_resource">projects</field>
+    </record>
+    <record id="onboarding_dias15_02" model="aq.portal.onboarding.deliverable">
+        <field name="name">Control de facturación y cobranza</field>
+        <field name="phase">dias15</field>
+        <field name="sequence">20</field>
+        <field name="link_resource">invoices</field>
+    </record>
+    <record id="onboarding_dias15_03" model="aq.portal.onboarding.deliverable">
+        <field name="name">Control de cuentas por pagar</field>
+        <field name="phase">dias15</field>
+        <field name="sequence">30</field>
+        <field name="link_resource">payables</field>
+    </record>
+    <record id="onboarding_dias15_04" model="aq.portal.onboarding.deliverable">
+        <field name="name">Seguimiento de prospectos</field>
+        <field name="phase">dias15</field>
+        <field name="sequence">40</field>
+        <field name="link_resource">prospects</field>
+    </record>
+    <record id="onboarding_dias15_05" model="aq.portal.onboarding.deliverable">
+        <field name="name">Lista de información faltante</field>
+        <field name="phase">dias15</field>
+        <field name="sequence">50</field>
+        <field name="link_resource">documents</field>
+    </record>
+    <record id="onboarding_dias15_06" model="aq.portal.onboarding.deliverable">
+        <field name="name">Propuesta de rutina semanal</field>
+        <field name="phase">dias15</field>
+        <field name="sequence">60</field>
+        <field name="link_resource">routines</field>
+    </record>
+    <record id="onboarding_dias30_01" model="aq.portal.onboarding.deliverable">
+        <field name="name">Matriz de contratos y documentos legales</field>
+        <field name="phase">dias30</field>
+        <field name="sequence">10</field>
+        <field name="link_resource">legal</field>
+    </record>
+    <record id="onboarding_dias30_02" model="aq.portal.onboarding.deliverable">
+        <field name="name">Calendario de obligaciones</field>
+        <field name="phase">dias30</field>
+        <field name="sequence">20</field>
+        <field name="link_resource">obligations</field>
+    </record>
+    <record id="onboarding_dias30_03" model="aq.portal.onboarding.deliverable">
+        <field name="name">Diagnóstico del orden documental</field>
+        <field name="phase">dias30</field>
+        <field name="sequence">30</field>
+        <field name="link_resource">documents</field>
+    </record>
+    <record id="onboarding_dias30_04" model="aq.portal.onboarding.deliverable">
+        <field name="name">Reporte de proyectos sin siguiente acción</field>
+        <field name="phase">dias30</field>
+        <field name="sequence">40</field>
+        <field name="link_resource">projects</field>
+    </record>
+    <record id="onboarding_dias30_05" model="aq.portal.onboarding.deliverable">
+        <field name="name">Identificación de trabajo ejecutado sin facturar</field>
+        <field name="phase">dias30</field>
+        <field name="sequence">50</field>
+        <field name="link_resource">hours</field>
+    </record>
+    <record id="onboarding_dias30_06" model="aq.portal.onboarding.deliverable">
+        <field name="name">Primer reporte administrativo integral</field>
+        <field name="phase">dias30</field>
+        <field name="sequence">60</field>
+        <field name="link_resource">reports</field>
+    </record>
+    <record id="onboarding_dias30_07" model="aq.portal.onboarding.deliverable">
+        <field name="name">Plan priorizado para los siguientes 60 días</field>
+        <field name="phase">dias30</field>
+        <field name="sequence">70</field>
+        <field name="link_resource">improvements</field>
+    </record>
+    <record id="onboarding_dias60_01" model="aq.portal.onboarding.deliverable">
+        <field name="name">Procedimiento de facturación y cobranza</field>
+        <field name="phase">dias60</field>
+        <field name="sequence">10</field>
+        <field name="link_resource">manuals</field>
+    </record>
+    <record id="onboarding_dias60_02" model="aq.portal.onboarding.deliverable">
+        <field name="name">Procedimiento de seguimiento de proyectos</field>
+        <field name="phase">dias60</field>
+        <field name="sequence">20</field>
+        <field name="link_resource">manuals</field>
+    </record>
+    <record id="onboarding_dias60_03" model="aq.portal.onboarding.deliverable">
+        <field name="name">Expedientes básicos de personal</field>
+        <field name="phase">dias60</field>
+        <field name="sequence">30</field>
+        <field name="link_resource">employees</field>
+    </record>
+    <record id="onboarding_dias60_04" model="aq.portal.onboarding.deliverable">
+        <field name="name">Padrón de proveedores y servicios recurrentes</field>
+        <field name="phase">dias60</field>
+        <field name="sequence">40</field>
+        <field name="link_resource">vendors</field>
+    </record>
+    <record id="onboarding_dias60_05" model="aq.portal.onboarding.deliverable">
+        <field name="name">Primeros formatos contractuales prioritarios</field>
+        <field name="phase">dias60</field>
+        <field name="sequence">50</field>
+        <field name="link_resource">templates</field>
+    </record>
+    <record id="onboarding_dias60_06" model="aq.portal.onboarding.deliverable">
+        <field name="name">Sistema de control de cambios y aceptaciones</field>
+        <field name="phase">dias60</field>
+        <field name="sequence">60</field>
+        <field name="link_resource">changes</field>
+    </record>
+    <record id="onboarding_dias90_01" model="aq.portal.onboarding.deliverable">
+        <field name="name">Biblioteca legal inicial</field>
+        <field name="phase">dias90</field>
+        <field name="sequence">10</field>
+        <field name="link_resource">templates</field>
+    </record>
+    <record id="onboarding_dias90_02" model="aq.portal.onboarding.deliverable">
+        <field name="name">Tablero ejecutivo</field>
+        <field name="phase">dias90</field>
+        <field name="sequence">20</field>
+        <field name="link_resource">dashboard</field>
+    </record>
+    <record id="onboarding_dias90_03" model="aq.portal.onboarding.deliverable">
+        <field name="name">Matriz de riesgos</field>
+        <field name="phase">dias90</field>
+        <field name="sequence">30</field>
+        <field name="link_resource">risks</field>
+    </record>
+    <record id="onboarding_dias90_04" model="aq.portal.onboarding.deliverable">
+        <field name="name">Procedimientos de incorporación y separación de personal</field>
+        <field name="phase">dias90</field>
+        <field name="sequence">40</field>
+        <field name="link_resource">manuals</field>
+    </record>
+    <record id="onboarding_dias90_05" model="aq.portal.onboarding.deliverable">
+        <field name="name">Estructura estable de reportes</field>
+        <field name="phase">dias90</field>
+        <field name="sequence">50</field>
+        <field name="link_resource">reports</field>
+    </record>
+    <record id="onboarding_dias90_06" model="aq.portal.onboarding.deliverable">
+        <field name="name">Propuesta de mejoras y automatizaciones</field>
+        <field name="phase">dias90</field>
+        <field name="sequence">60</field>
+        <field name="link_resource">improvements</field>
+    </record>
+</odoo>

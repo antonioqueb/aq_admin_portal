@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="param_stale_days" model="ir.config_parameter">
+        <field name="key">aq_admin_portal.stale_days</field>
+        <field name="value">5</field>
+    </record>
+    <record id="param_warn_days" model="ir.config_parameter">
+        <field name="key">aq_admin_portal.warn_days</field>
+        <field name="value">7</field>
+    </record>
+    <record id="param_prospect_days" model="ir.config_parameter">
+        <field name="key">aq_admin_portal.prospect_days</field>
+        <field name="value">7</field>
+    </record>
+    <record id="param_depletion_threshold" model="ir.config_parameter">
+        <field name="key">aq_admin_portal.depletion_threshold</field>
+        <field name="value">80</field>
+    </record>
+    <record id="param_session_hours" model="ir.config_parameter">
+        <field name="key">aq_admin_portal.session_hours</field>
+        <field name="value">12</field>
+    </record>
+</odoo>

@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_open_portal_url" model="ir.actions.act_url">
+        <field name="name">Abrir portal web</field>
+        <field name="url">/admin-portal</field>
+        <field name="target">new</field>
+    </record>
+    <record id="action_res_projects" model="ir.actions.act_window">
+        <field name="name">Control maestro de proyectos</field>
+        <field name="res_model">aq.portal.project</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_agreements" model="ir.actions.act_window">
+        <field name="name">Acuerdos y pendientes</field>
+        <field name="res_model">aq.portal.agreement</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_invoices" model="ir.actions.act_window">
+        <field name="name">Calendario de facturación</field>
+        <field name="res_model">aq.portal.invoice.schedule</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_receivables" model="ir.actions.act_window">
+        <field name="name">Cuentas por cobrar y cobranza</field>
+        <field name="res_model">aq.portal.receivable</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_payables" model="ir.actions.act_window">
+        <field name="name">Cuentas por pagar</field>
+        <field name="res_model">aq.portal.payable</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_hours" model="ir.actions.act_window">
+        <field name="name">Horas, alcances y trabajo facturable</field>
+        <field name="res_model">aq.portal.hour.bucket</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_deliverables" model="ir.actions.act_window">
+        <field name="name">Entregables y aceptación</field>
+        <field name="res_model">aq.portal.deliverable</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_prospects" model="ir.actions.act_window">
+        <field name="name">Control de prospectos</field>
+        <field name="res_model">aq.portal.prospect</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_documents" model="ir.actions.act_window">
+        <field name="name">Organización documental</field>
+        <field name="res_model">aq.portal.document</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_legal" model="ir.actions.act_window">
+        <field name="name">Inventario legal / matriz de contratos</field>
+        <field name="res_model">aq.portal.legal.item</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_templates" model="ir.actions.act_window">
+        <field name="name">Biblioteca legal (formatos y modelos)</field>
+        <field name="res_model">aq.portal.template</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_employees" model="ir.actions.act_window">
+        <field name="name">Administración de personal (expedientes)</field>
+        <field name="res_model">aq.portal.employee</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_procedure_steps" model="ir.actions.act_window">
+        <field name="name">Plantilla del procedimiento de proyectos</field>
+        <field name="res_model">aq.portal.procedure.step</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_changes" model="ir.actions.act_window">
+        <field name="name">Control de cambios y trabajo adicional</field>
+        <field name="res_model">aq.portal.change.request</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_vendors" model="ir.actions.act_window">
+        <field name="name">Proveedores, licencias y servicios recurrentes</field>
+        <field name="res_model">aq.portal.vendor</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_obligations" model="ir.actions.act_window">
+        <field name="name">Calendario de obligaciones</field>
+        <field name="res_model">aq.portal.obligation</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_privacy" model="ir.actions.act_window">
+        <field name="name">Privacidad y manejo de información</field>
+        <field name="res_model">aq.portal.data.inventory</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_risks" model="ir.actions.act_window">
+        <field name="name">Matriz de riesgos</field>
+        <field name="res_model">aq.portal.risk</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_manuals" model="ir.actions.act_window">
+        <field name="name">Manuales y procedimientos internos</field>
+        <field name="res_model">aq.portal.manual</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_corporate" model="ir.actions.act_window">
+        <field name="name">Gobierno corporativo</field>
+        <field name="res_model">aq.portal.corporate</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_tenders" model="ir.actions.act_window">
+        <field name="name">Gobierno y sector público</field>
+        <field name="res_model">aq.portal.tender</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_improvements" model="ir.actions.act_window">
+        <field name="name">Mejora continua</field>
+        <field name="res_model">aq.portal.improvement</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_onboarding" model="ir.actions.act_window">
+        <field name="name">Entregables de incorporación</field>
+        <field name="res_model">aq.portal.onboarding.deliverable</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_routines" model="ir.actions.act_window">
+        <field name="name">Catálogo de rutinas</field>
+        <field name="res_model">aq.portal.routine</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_reports" model="ir.actions.act_window">
+        <field name="name">Reportes ejecutivos</field>
+        <field name="res_model">aq.portal.report</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_members" model="ir.actions.act_window">
+        <field name="name">Integrantes del equipo</field>
+        <field name="res_model">aq.portal.member</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_res_audit" model="ir.actions.act_window">
+        <field name="name">Bitácora de auditoría</field>
+        <field name="res_model">aq.portal.audit.log</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>
