@@ -135,15 +135,14 @@ class OpsMeetingSession(models.Model):
     def build_exec_summary(self, name, project_name, date, text):
         """Genera el JSON del resumen ejecutivo a partir de una transcripción, sin requerir reunión ni proyecto."""
         AI = self.env["aq.ops.ai"].sudo()
-        out = AI.chat("Eres el redactor ejecutivo de AlphaQueb. A partir de la transcripción, produce JSON con secciones bien redactadas en español profesional: "
-                      "{\"objetivo\": str, \"resumen\": str (2-3 párrafos), \"temas\": [{\"titulo\", \"detalle\"}], \"decisiones\": [str], \"acuerdos\": [{\"acuerdo\", \"responsable\", \"fecha\"}], "
-                      "\"pendientes_cliente\": [str], \"riesgos\": [str], \"siguientes_pasos\": [str], \"proxima_sesion\": str}. Sesión: %s · Proyecto: %s · Fecha: %s.\nTranscripción:\n%s"
-                      % (name, project_name or "(por identificar)", date, text[:14000]), json_mode=True, max_tokens=2800, tier="deep")
+        out = AI.chat_json("Eres el redactor ejecutivo de AlphaQueb Consulting. Redacta en español profesional, prosa natural (nunca JSON ni Markdown dentro de los textos). "
+                           "Devuelve exclusivamente un objeto JSON con esta forma: "
+                           "{\"objetivo\": str, \"resumen\": str (2-3 párrafos narrativos), \"temas\": [{\"titulo\": str, \"detalle\": str (párrafo)}], \"decisiones\": [str], "
+                           "\"acuerdos\": [{\"acuerdo\": str, \"responsable\": str, \"fecha\": str}], \"pendientes_cliente\": [str], \"riesgos\": [str], \"siguientes_pasos\": [str], \"proxima_sesion\": str}. "
+                           "Sesión: %s · Proyecto: %s · Fecha: %s.\nTranscripción:\n%s"
+                           % (name, project_name or "(por identificar)", date, text[:14000]), max_tokens=2800, tier="deep")
         if out:
-            try:
-                return json.loads(out)
-            except Exception:
-                return {"resumen": out}
+            return out
         # sin IA: heurística mínima
         h = self.env["aq.ops.ai"]._heuristic_meeting(text)
         return {"objetivo": "", "resumen": h.get("summary"), "temas": [], "decisiones": [], "acuerdos": h.get("agreements", []),
@@ -161,23 +160,102 @@ class OpsMeetingSession(models.Model):
 
     @api.model
     def create_summary_doc_generic(self, title, project_name, partner_name, date, d):
+        """Copia la plantilla membretada y escribe el resumen como contenido con formato (títulos, párrafos y viñetas).
+        Si la plantilla tuviera marcadores {{...}}, se usan; si su cuerpo está vacío (membrete), se inserta el contenido."""
         acc = self.env["aq.google.sync"]._account()
         template = self.env["aq.ops.meeting"]._template_id(acc)
-        copy = acc.post("https://www.googleapis.com/drive/v3/files/%s/copy" % template, {"name": "Resumen · %s" % title[:120], "parents": [acc.drive_folder_id("AlphaOps")]})
+        copy = acc.post("https://www.googleapis.com/drive/v3/files/%s/copy" % template, {"name": "Resumen Ejecutivo · %s" % title[:110], "parents": [acc.drive_folder_id("AlphaOps")]})
         did = copy["id"]
-        def txt(items, bullet="• "):
-            return "\n".join(bullet + (i if isinstance(i, str) else "%s — %s · %s" % (i.get("acuerdo", i.get("titulo", "")), i.get("responsable", i.get("detalle", "")) or "", i.get("fecha", "") or "")) for i in (items or [])) or "—"
-        repl = {"{{FOLIO}}": title, "{{PROYECTO}}": project_name or "(por identificar)", "{{CLIENTE}}": partner_name or "", "{{FECHA}}": str(date or ""),
-                "{{OBJETIVO}}": d.get("objetivo") or "—", "{{RESUMEN}}": d.get("resumen") or "—", "{{TEMAS}}": txt(d.get("temas")), "{{DECISIONES}}": txt(d.get("decisiones")),
-                "{{ACUERDOS}}": txt(d.get("acuerdos")), "{{PENDIENTES}}": txt(d.get("pendientes_cliente")), "{{RIESGOS}}": txt(d.get("riesgos")), "{{PASOS}}": txt(d.get("siguientes_pasos")), "{{PROXIMA}}": d.get("proxima_sesion") or "por definir"}
-        acc.post("https://docs.googleapis.com/v1/documents/%s:batchUpdate" % did, {"requests": [{"replaceAllText": {"containsText": {"text": k, "matchCase": True}, "replaceText": (v or "")[:6000]}} for k, v in repl.items()]})
+        tpl_text = ""
+        try:
+            tpl_text = acc.doc_text(template) or ""
+        except Exception:
+            pass
+        def plain(i):
+            return re.sub(r"<[^>]+>", "", self._fmt_item(i))
+        if "{{" in tpl_text:
+            def txt(items):
+                return "\n".join("• " + plain(i) for i in (items or []) if i) or "—"
+            repl = {"{{FOLIO}}": title, "{{PROYECTO}}": project_name or "(por identificar)", "{{CLIENTE}}": partner_name or "", "{{FECHA}}": str(date or ""),
+                    "{{OBJETIVO}}": d.get("objetivo") or "—", "{{RESUMEN}}": d.get("resumen") or "—", "{{TEMAS}}": txt(d.get("temas")), "{{DECISIONES}}": txt(d.get("decisiones")),
+                    "{{ACUERDOS}}": txt(d.get("acuerdos")), "{{PENDIENTES}}": txt(d.get("pendientes_cliente")), "{{RIESGOS}}": txt(d.get("riesgos")), "{{PASOS}}": txt(d.get("siguientes_pasos")), "{{PROXIMA}}": d.get("proxima_sesion") or "por definir"}
+            acc.post("https://docs.googleapis.com/v1/documents/%s:batchUpdate" % did, {"requests": [{"replaceAllText": {"containsText": {"text": k, "matchCase": True}, "replaceText": (v or "")[:6000]}} for k, v in repl.items()]})
+        else:
+            acc.post("https://docs.googleapis.com/v1/documents/%s:batchUpdate" % did, {"requests": self._docs_requests(title, project_name, partner_name, date, d)})
         return "https://docs.google.com/document/d/%s/edit" % did
+
+    @api.model
+    def _docs_requests(self, title, project_name, partner_name, date, d):
+        """Construye el contenido con estilos nativos de Google Docs sobre el membrete."""
+        segs = []  # (texto, estilo, bullet)
+        def seg(t, style="NORMAL_TEXT", bullet=False):
+            t = (t or "").replace("\r", "").strip()
+            if t:
+                segs.append((t, style, bullet))
+        def items(lst):
+            for i in (lst or []):
+                if i:
+                    seg(re.sub(r"<[^>]+>", "", self._fmt_item(i)), "NORMAL_TEXT", True)
+        seg("Resumen Ejecutivo de Sesión", "HEADING_1")
+        seg(title, "HEADING_2")
+        seg("%s · %s · %s" % (project_name or "(por identificar)", partner_name or "", str(date or "")), "SUBTITLE")
+        if d.get("objetivo"):
+            seg("Objetivo", "HEADING_2"); seg(d["objetivo"])
+        seg("Resumen", "HEADING_2")
+        for par in (d.get("resumen") or "—").split("\n"):
+            seg(par)
+        for t in (d.get("temas") or []):
+            seg(t.get("titulo") or "Tema", "HEADING_3"); seg(t.get("detalle"))
+        if d.get("decisiones"):
+            seg("Decisiones", "HEADING_2"); items(d["decisiones"])
+        seg("Acuerdos y compromisos", "HEADING_2")
+        if d.get("acuerdos"):
+            items(d["acuerdos"])
+        else:
+            seg("Sin acuerdos registrados.")
+        if d.get("pendientes_cliente"):
+            seg("Pendientes del cliente", "HEADING_2"); items(d["pendientes_cliente"])
+        if d.get("riesgos"):
+            seg("Riesgos", "HEADING_2"); items(d["riesgos"])
+        if d.get("siguientes_pasos"):
+            seg("Siguientes pasos", "HEADING_2"); items(d["siguientes_pasos"])
+        seg("Próxima sesión", "HEADING_2"); seg(d.get("proxima_sesion") or "Por definir")
+        full = "".join(t + "\n" for t, _st, _b in segs)
+        def u16(x):
+            return len(x.encode("utf-16-le")) // 2
+        reqs = [{"insertText": {"location": {"index": 1}, "text": full}}]
+        idx = 1
+        bullet_start = None
+        for i, (t, st, b) in enumerate(segs):
+            start, end = idx, idx + u16(t) + 1
+            if st != "NORMAL_TEXT" or not b:
+                reqs.append({"updateParagraphStyle": {"range": {"startIndex": start, "endIndex": end}, "paragraphStyle": {"namedStyleType": st}, "fields": "namedStyleType"}})
+            if b and bullet_start is None:
+                bullet_start = start
+            if (not b or i == len(segs) - 1) and bullet_start is not None:
+                bend = end if b else start
+                reqs.append({"createParagraphBullets": {"range": {"startIndex": bullet_start, "endIndex": bend}, "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE"}})
+                bullet_start = None
+            idx = end
+        return reqs
+
+    @staticmethod
+    def _fmt_item(i):
+        if isinstance(i, str):
+            return i
+        if isinstance(i, dict):
+            if "acuerdo" in i:
+                return "<b>%s</b> — %s · %s" % (i.get("acuerdo", ""), i.get("responsable") or "por asignar", i.get("fecha") or "sin fecha")
+            if "titulo" in i:
+                return "<b>%s.</b> %s" % (i.get("titulo", ""), i.get("detalle", ""))
+            return " · ".join("%s" % v for v in i.values() if v)
+        return str(i)
 
     def _exec_html(self, m, d):
         def ul(items):
             items = [i for i in (items or []) if i]
-            return "<ul>%s</ul>" % "".join("<li>%s</li>" % (i if isinstance(i, str) else json.dumps(i, ensure_ascii=False)) for i in items) if items else "<p>—</p>"
-        acuerdos = "".join("<li><b>%s</b> — %s · %s</li>" % (a.get("acuerdo", ""), a.get("responsable") or "por asignar", a.get("fecha") or "sin fecha") for a in (d.get("acuerdos") or []))
+            return "<ul>%s</ul>" % "".join("<li>%s</li>" % self._fmt_item(i) for i in items) if items else "<p>—</p>"
+        acuerdos = "".join("<li>%s</li>" % self._fmt_item(a) for a in (d.get("acuerdos") or []))
         temas = "".join("<h4>%s</h4><p>%s</p>" % (t.get("titulo", ""), t.get("detalle", "")) for t in (d.get("temas") or []))
         return ("<h2>%s</h2><p><b>Proyecto:</b> %s · <b>Fecha:</b> %s · <b>Folio:</b> %s</p><h3>Objetivo</h3><p>%s</p><h3>Resumen</h3><p>%s</p>%s"
                 "<h3>Decisiones</h3>%s<h3>Acuerdos y compromisos</h3><ul>%s</ul><h3>Pendientes del cliente</h3>%s<h3>Riesgos</h3>%s<h3>Siguientes pasos</h3>%s<p><b>Próxima sesión:</b> %s</p>") % (
@@ -204,17 +282,7 @@ class OpsMeetingSession(models.Model):
 
     def _create_summary_doc(self, d):
         self.ensure_one()
-        acc = self.env["aq.google.sync"]._account()
-        template = self._template_id(acc)
-        copy = acc.post("https://www.googleapis.com/drive/v3/files/%s/copy" % template, {"name": "Resumen · %s" % self.name, "parents": [acc.drive_folder_id("AlphaOps")]})
-        did = copy["id"]
-        def txt(items, bullet="• "):
-            return "\n".join(bullet + (i if isinstance(i, str) else "%s — %s · %s" % (i.get("acuerdo", i.get("titulo", "")), i.get("responsable", i.get("detalle", "")) or "", i.get("fecha", "") or "")) for i in (items or [])) or "—"
-        repl = {"{{FOLIO}}": self.name, "{{PROYECTO}}": self.project_id.name, "{{CLIENTE}}": self.project_id.partner_id.name or "", "{{FECHA}}": str(self.date or ""),
-                "{{OBJETIVO}}": d.get("objetivo") or "—", "{{RESUMEN}}": d.get("resumen") or "—", "{{TEMAS}}": txt(d.get("temas")), "{{DECISIONES}}": txt(d.get("decisiones")),
-                "{{ACUERDOS}}": txt(d.get("acuerdos")), "{{PENDIENTES}}": txt(d.get("pendientes_cliente")), "{{RIESGOS}}": txt(d.get("riesgos")), "{{PASOS}}": txt(d.get("siguientes_pasos")), "{{PROXIMA}}": d.get("proxima_sesion") or "por definir"}
-        acc.post("https://docs.googleapis.com/v1/documents/%s:batchUpdate" % did, {"requests": [{"replaceAllText": {"containsText": {"text": k, "matchCase": True}, "replaceText": v[:6000]}} for k, v in repl.items()]})
-        url = "https://docs.google.com/document/d/%s/edit" % did
+        url = self.create_summary_doc_generic(self.name, self.project_id.name, self.project_id.partner_id.name, self.date, d)
         self.with_context(aq_skip_activity=True).write({"summary_doc_url": url, "google_doc_url": url})
         self.env["aq.ops.document"].sudo().create({"name": "Resumen · %s" % self.name, "doc_type": "minuta", "project_id": self.project_id.id, "drive_url": url, "meeting_id": self.id, "client_visible": self.client_visible})
         return url

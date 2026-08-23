@@ -92,6 +92,29 @@ class OpsAI(models.AbstractModel):
             return {"ok": False, "error": str(e), "status": self.status()}
 
     @api.model
+    def parse_json(self, out):
+        """Extrae JSON aunque venga con cercas ```json``` o texto alrededor."""
+        if not out:
+            return None
+        t = out.strip()
+        t = re.sub(r"^```[a-zA-Z]*\s*", "", t)
+        t = re.sub(r"\s*```$", "", t)
+        try:
+            return json.loads(t)
+        except Exception:
+            a, b = t.find("{"), t.rfind("}")
+            if a >= 0 and b > a:
+                try:
+                    return json.loads(t[a:b + 1])
+                except Exception:
+                    return None
+        return None
+
+    @api.model
+    def chat_json(self, prompt, system=SYSTEM, max_tokens=1500, tier="fast"):
+        return self.parse_json(self.chat(prompt, system=system, json_mode=True, max_tokens=max_tokens, tier=tier))
+
+    @api.model
     def chat(self, prompt=None, system=SYSTEM, json_mode=False, max_tokens=1500, tier="fast", images=None):
         """Llamada al endpoint compatible de DeepSeek. tier: fast (V4 Flash: transcripciones, extracción, clasificación,
         resúmenes preliminares) | deep (V4 Pro: resumen ejecutivo final, análisis profundo, requerimientos técnicos) |
@@ -125,13 +148,9 @@ class OpsAI(models.AbstractModel):
         prompt = ("Resume esta reunión y extrae en JSON: {\"summary\": str, \"agreements\": [{\"name\", \"owner\", \"due_date\", \"kind\": compromiso|acuerdo|tarea|cambio}], "
                   "\"decisions\": [{\"name\", \"decision\"}], \"questions\": [str], \"risks\": [str]}. Proyecto: %s. Texto:\n%s") % (meeting.project_id.name, re.sub(r"<[^>]+>", " ", text)[:12000])
         out = self.chat(prompt, json_mode=True, max_tokens=2500, tier="fast")
-        if out is None:
-            data = self._heuristic_meeting(text)
-        else:
-            try:
-                data = json.loads(out)
-            except Exception:
-                data = {"summary": out, "agreements": [], "decisions": [], "questions": [], "risks": []}
+        data = self.parse_json(out) if out else None
+        if data is None:
+            data = self._heuristic_meeting(text) if out is None else {"summary": out, "agreements": [], "decisions": [], "questions": [], "risks": []}
         meeting.write({"ai_summary": data.get("summary"), "ai_proposals_json": json.dumps(data, ensure_ascii=False)})
         Agreement = self.env["aq.ops.meeting.agreement"]
         for a in data.get("agreements", []):
@@ -188,20 +207,12 @@ class OpsAI(models.AbstractModel):
             toks = set(re.findall(r"[a-záéíóúñ]{5,}", (request.name + " " + (request.description or "")).lower()))
             hits = len([t for t in toks if t in scope.lower()])
             return {"in_scope": None if not scope else hits >= 3, "reason": "Coincidencia de términos con el alcance: %d" % hits, "classification": "requerimiento"}
-        try:
-            return json.loads(out)
-        except Exception:
-            return {"in_scope": None, "reason": out, "classification": "sin_clasificar"}
+        return self.parse_json(out) or {"in_scope": None, "reason": out, "classification": "sin_clasificar"}
 
     @api.model
     def suggest_tests(self, item):
         out = self.chat(tier="deep", prompt="Propón 5 casos de prueba (JSON {\"cases\": [{\"name\", \"steps\", \"expected\"}]}) para: %s. Criterios: %s" % (item.name, item.acceptance_criteria or item.description or ""), json_mode=True)
-        cases = []
-        if out:
-            try:
-                cases = json.loads(out).get("cases", [])
-            except Exception:
-                cases = []
+        cases = (self.parse_json(out) or {}).get("cases", []) if out else []
         if not cases:
             cases = [{"name": "Flujo principal: %s" % item.name, "steps": "Ejecutar el flujo descrito en los criterios", "expected": item.acceptance_criteria or "Cumple criterios"},
                      {"name": "Validación de datos obligatorios", "steps": "Omitir campos requeridos", "expected": "El sistema impide continuar"},

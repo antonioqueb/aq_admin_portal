@@ -17,6 +17,7 @@ class OpsMeeting(models.Model):
     date = fields.Datetime(required=True, default=fields.Datetime.now)
     meeting_type = fields.Selection([("kickoff", "Kickoff"), ("seguimiento", "Seguimiento"), ("validacion", "Validación"), ("tecnica", "Técnica"),
                                      ("direccion", "Dirección"), ("cliente", "Con cliente"), ("retro", "Retrospectiva"), ("otra", "Otra")], default="seguimiento")
+    location = fields.Char(string="Lugar / enlace de Meet")
     member_ids = fields.Many2many("aq.portal.member", string="Participantes internos")
     client_partner_ids = fields.Many2many("res.partner", string="Participantes del cliente")
     agenda = fields.Text(string="Agenda")

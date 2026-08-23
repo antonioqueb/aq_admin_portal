@@ -556,14 +556,11 @@ class GoogleSync(models.AbstractModel):
             out = AI.chat("Clasifica este correo para AlphaQueb Consulting (consultora Odoo). Responde JSON {\"app\": \"admin\"|\"ops\", \"category\": meeting_notes|request|incident|invoice|payable|legal|hr|prospect|agreement|info|other, "
                           "\"summary\": str (2 líneas), \"action\": str (acción sugerida, una línea)}. Administración = contratos, facturación, cobranza, pagos, legal, RH, prospectos. "
                           "Operaciones = proyectos, requerimientos, incidencias, reuniones, entregables.\nDe: %s\nAsunto: %s\nCuerpo:\n%s" % (msg.get("from"), msg.get("subject"), (msg.get("body") or "")[:3000]), json_mode=True, max_tokens=300)
-        if out:
-            try:
-                d = json.loads(out)
-                rec.write({"app": d.get("app") if d.get("app") in ("admin", "ops") else "ops", "category": d.get("category") if d.get("category") in dict(rec._fields["category"].selection) else "other",
-                           "ai_summary": d.get("summary"), "ai_action": d.get("action"), "routed_by": "ai"})
-                return
-            except Exception:
-                pass
+        d = AI.parse_json(out) if out else None
+        if d:
+            rec.write({"app": d.get("app") if d.get("app") in ("admin", "ops") else "ops", "category": d.get("category") if d.get("category") in dict(rec._fields["category"].selection) else "other",
+                       "ai_summary": d.get("summary"), "ai_action": d.get("action"), "routed_by": "ai"})
+            return
         # heurística sin IA
         text = subj + " " + (msg.get("body") or "")[:2000].lower()
         cat, app = "other", "ops"
