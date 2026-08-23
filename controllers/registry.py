@@ -570,7 +570,7 @@ RESOURCES = {
 }
 
 # Modelos a los que se permite buscar por nombre (selectores many2one)
-NAME_SEARCH_MODELS = {r["model"] for r in RESOURCES.values()} | {"res.partner", "res.currency", "account.move"}
+NAME_SEARCH_MODELS = {r["model"] for r in RESOURCES.values()} | {"res.partner", "res.currency", "account.move", "aq.ops.project"}
 NAME_SEARCH_DOMAINS = {"account.move": [("move_type", "in", ("out_invoice", "out_refund"))]}
 
 

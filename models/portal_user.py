@@ -144,12 +144,14 @@ class PortalUser(models.Model):
         return token
 
     @api.model
-    def from_token(self, token):
+    def from_token(self, token, allow_pending=False):
         if not token:
             return self.browse()
         Session = self.env["aq.portal.session"].sudo()
         session = Session.search([("token_hash", "=", _sha(token)), ("active", "=", True)], limit=1)
         if not session or session.expires < fields.Datetime.now() or not session.user_id.active:
+            return self.browse()
+        if session.mfa_pending and not allow_pending:
             return self.browse()
         # extender sesión deslizante cada 10 minutos
         if (fields.Datetime.now() - (session.last_seen or session.create_date)).total_seconds() > 600:
@@ -246,6 +248,7 @@ class PortalSession(models.Model):
     ip = fields.Char()
     user_agent = fields.Char()
     active = fields.Boolean(default=True)
+    mfa_pending = fields.Boolean(string="Pendiente de MFA")
 
     @api.model
     def _gc_sessions(self):

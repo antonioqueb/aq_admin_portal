@@ -28,3 +28,14 @@ from . import report
 from . import alert
 from . import audit
 from . import followup
+from . import ops_security
+from . import ops_core
+from . import ops_work
+from . import ops_meeting
+from . import ops_raid
+from . import ops_quality
+from . import ops_time
+from . import ops_knowledge
+from . import ops_comm
+from . import ops_ai
+from . import ops_engine

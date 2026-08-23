@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_aq_ops_root" name="Operaciones (AlphaOps)" sequence="47" web_icon="aq_admin_portal,static/description/icon_ops.png" groups="aq_admin_portal.group_aq_portal_manager"/>
+    <record id="action_open_ops_url" model="ir.actions.act_url"><field name="name">Abrir Operaciones</field><field name="url">/admin-portal/ops</field><field name="target">new</field></record>
+    <menuitem id="menu_aq_ops_open" name="Abrir portal de Operaciones" parent="menu_aq_ops_root" sequence="1" action="action_open_ops_url"/>
+    <record id="action_aq_ops_project" model="ir.actions.act_window"><field name="name">Proyectos</field><field name="res_model">aq.ops.project</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_project" name="Proyectos" parent="menu_aq_ops_root" action="action_aq_ops_project" sequence="20"/>
+    <record id="action_aq_ops_milestone" model="ir.actions.act_window"><field name="name">Hitos</field><field name="res_model">aq.ops.milestone</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_milestone" name="Hitos" parent="menu_aq_ops_root" action="action_aq_ops_milestone" sequence="30"/>
+    <record id="action_aq_ops_request" model="ir.actions.act_window"><field name="name">Solicitudes</field><field name="res_model">aq.ops.request</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_request" name="Solicitudes" parent="menu_aq_ops_root" action="action_aq_ops_request" sequence="40"/>
+    <record id="action_aq_ops_item" model="ir.actions.act_window"><field name="name">Elementos de trabajo</field><field name="res_model">aq.ops.item</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_item" name="Elementos de trabajo" parent="menu_aq_ops_root" action="action_aq_ops_item" sequence="50"/>
+    <record id="action_aq_ops_change" model="ir.actions.act_window"><field name="name">Cambios de alcance</field><field name="res_model">aq.ops.change</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_change" name="Cambios de alcance" parent="menu_aq_ops_root" action="action_aq_ops_change" sequence="60"/>
+    <record id="action_aq_ops_meeting" model="ir.actions.act_window"><field name="name">Reuniones</field><field name="res_model">aq.ops.meeting</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_meeting" name="Reuniones" parent="menu_aq_ops_root" action="action_aq_ops_meeting" sequence="70"/>
+    <record id="action_aq_ops_decision" model="ir.actions.act_window"><field name="name">Decisiones</field><field name="res_model">aq.ops.decision</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_decision" name="Decisiones" parent="menu_aq_ops_root" action="action_aq_ops_decision" sequence="80"/>
+    <record id="action_aq_ops_raid" model="ir.actions.act_window"><field name="name">RAID</field><field name="res_model">aq.ops.raid</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_raid" name="RAID" parent="menu_aq_ops_root" action="action_aq_ops_raid" sequence="90"/>
+    <record id="action_aq_ops_incident" model="ir.actions.act_window"><field name="name">Incidentes</field><field name="res_model">aq.ops.incident</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_incident" name="Incidentes" parent="menu_aq_ops_root" action="action_aq_ops_incident" sequence="100"/>
+    <record id="action_aq_ops_release" model="ir.actions.act_window"><field name="name">Liberaciones</field><field name="res_model">aq.ops.release</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_release" name="Liberaciones" parent="menu_aq_ops_root" action="action_aq_ops_release" sequence="110"/>
+    <record id="action_aq_ops_acceptance" model="ir.actions.act_window"><field name="name">Validaciones</field><field name="res_model">aq.ops.acceptance</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_acceptance" name="Validaciones" parent="menu_aq_ops_root" action="action_aq_ops_acceptance" sequence="120"/>
+    <record id="action_aq_ops_timesheet" model="ir.actions.act_window"><field name="name">Tiempo</field><field name="res_model">aq.ops.timesheet</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_timesheet" name="Tiempo" parent="menu_aq_ops_root" action="action_aq_ops_timesheet" sequence="130"/>
+    <record id="action_aq_ops_capacity" model="ir.actions.act_window"><field name="name">Capacidad</field><field name="res_model">aq.ops.capacity</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_capacity" name="Capacidad" parent="menu_aq_ops_root" action="action_aq_ops_capacity" sequence="140"/>
+    <record id="action_aq_ops_document" model="ir.actions.act_window"><field name="name">Documentación</field><field name="res_model">aq.ops.document</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_document" name="Documentación" parent="menu_aq_ops_root" action="action_aq_ops_document" sequence="150"/>
+    <record id="action_aq_ops_template" model="ir.actions.act_window"><field name="name">Plantillas</field><field name="res_model">aq.ops.template</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_template" name="Plantillas" parent="menu_aq_ops_root" action="action_aq_ops_template" sequence="160"/>
+    <record id="action_aq_ops_automation" model="ir.actions.act_window"><field name="name">Automatizaciones</field><field name="res_model">aq.ops.automation</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_automation" name="Automatizaciones" parent="menu_aq_ops_root" action="action_aq_ops_automation" sequence="170"/>
+    <record id="action_aq_ops_event" model="ir.actions.act_window"><field name="name">Eventos Admin ⇄ Ops</field><field name="res_model">aq.ops.event</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_event" name="Eventos Admin ⇄ Ops" parent="menu_aq_ops_root" action="action_aq_ops_event" sequence="180"/>
+    <record id="action_aq_ops_integration" model="ir.actions.act_window"><field name="name">Integraciones</field><field name="res_model">aq.ops.integration</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_integration" name="Integraciones" parent="menu_aq_ops_root" action="action_aq_ops_integration" sequence="190"/>
+    <record id="action_aq_ops_breakglass" model="ir.actions.act_window"><field name="name">Accesos extraordinarios</field><field name="res_model">aq.ops.breakglass</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_breakglass" name="Accesos extraordinarios" parent="menu_aq_ops_root" action="action_aq_ops_breakglass" sequence="200"/>
+    <record id="action_aq_ops_notification" model="ir.actions.act_window"><field name="name">Notificaciones</field><field name="res_model">aq.ops.notification</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ops_notification" name="Notificaciones" parent="menu_aq_ops_root" action="action_aq_ops_notification" sequence="210"/>
+</odoo>

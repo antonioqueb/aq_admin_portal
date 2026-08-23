@@ -38,7 +38,58 @@ const qs = (params: Record<string, any>) => {
   return s ? '?' + s : ''
 }
 
+export function makeResourceApi(prefix: string) {
+  const P = prefix
+  return {
+    prefix: P,
+    list: (resource: string, params: Record<string, any> = {}) => call('GET', `${P}/r/${resource}` + qs(params)),
+    read: (resource: string, id: number) => call('GET', `${P}/r/${resource}/${id}`),
+    create: (resource: string, vals: any) => call('POST', `${P}/r/${resource}`, vals),
+    write: (resource: string, id: number, vals: any) => call('PUT', `${P}/r/${resource}/${id}`, vals),
+    remove: (resource: string, id: number) => call('DELETE', `${P}/r/${resource}/${id}`),
+    action: (resource: string, id: number, action: string) => call('POST', `${P}/r/${resource}/${id}/action/${action}`),
+    messages: (resource: string, id: number) => call('GET', `${P}/r/${resource}/${id}/messages`),
+    note: (resource: string, id: number, body: string, clientVisible?: boolean) => call('POST', `${P}/r/${resource}/${id}/note`, { body, client_visible: clientVisible }),
+    attachments: (resource: string, id: number) => call('GET', `${P}/r/${resource}/${id}/attachments`),
+    upload: (resource: string, id: number, files: FileList | File[]) => { const fd = new FormData(); Array.from(files).forEach(f => fd.append('file', f)); return call('POST', `${P}/r/${resource}/${id}/attachments`, fd) },
+    nameSearch: (model: string, q: string) => call('GET', `${P}/name_search` + qs({ model, q })),
+    schema: () => call('GET', `${P}/schema`),
+    exportUrl: (resource: string, params: Record<string, any> = {}) => `${API}${P}/export/${resource}` + qs({ ...params, token: getToken() }),
+  }
+}
+export type ResourceApi = ReturnType<typeof makeResourceApi>
+
+export const ops = {
+  mywork: () => call('GET', '/ops/mywork'),
+  portfolio: () => call('GET', '/ops/portfolio'),
+  command: (id: number) => call('GET', `/ops/projects/${id}/command`),
+  clientHome: () => call('GET', '/ops/client/home'),
+  kpis: (from?: string, to?: string) => call('GET', '/ops/kpis' + qs({ from, to })),
+  move: (id: number, vals: any) => call('POST', `/ops/items/${id}/move`, vals),
+  timerStart: (vals: any) => call('POST', '/ops/timer/start', vals),
+  timerStop: () => call('POST', '/ops/timer/stop'),
+  week: (week?: string) => call('GET', '/ops/timesheets/week' + qs({ week })),
+  approveWeek: (week: string, member_id?: number) => call('POST', '/ops/timesheets/approve-week', { week, member_id }),
+  decide: (id: number, decision: string, reason?: string) => call('POST', `/ops/acceptances/${id}/decide`, { decision, reason }),
+  answer: (id: number, answer: string) => call('POST', `/ops/questions/${id}/answer`, { answer }),
+  notifications: (all?: boolean) => call('GET', '/ops/notifications' + qs({ all: all ? 1 : undefined })),
+  notifUpdate: (id: number, vals: any) => call('POST', `/ops/notifications/${id}`, vals),
+  notifReadAll: () => call('POST', '/ops/notifications/read-all'),
+  ai: (path: string) => call('POST', `/ops/ai/${path}`),
+  live: (since?: string) => call('GET', '/ops/live' + qs({ since })),
+  capacityForecast: (weeks = 4) => call('GET', '/ops/capacity/forecast' + qs({ weeks })),
+  views: (resource?: string) => call('GET', '/ops/views' + qs({ resource })),
+  saveView: (vals: any) => call('POST', '/ops/views', vals),
+  deleteView: (id: number) => call('DELETE', `/ops/views/${id}`),
+  icsUrl: () => `${API}/ops/calendar.ics?token=${encodeURIComponent(getToken() || '')}`,
+}
+
 export const api = {
+  mfaVerify: (token: string, code: string) => call('POST', '/auth/mfa/verify', { token, code }),
+  mfaSetup: () => call('POST', '/me/mfa/setup'),
+  mfaConfirm: (code: string) => call('POST', '/me/mfa/confirm', { code }),
+  mfaDisable: () => call('POST', '/me/mfa/disable'),
+  emitEvent: (vals: any) => call('POST', '/events/emit', vals),
   get: (path: string, params: Record<string, any> = {}) => call('GET', path + qs(params)),
   post: (path: string, body?: any) => call('POST', path, body),
   put: (path: string, body?: any) => call('PUT', path, body),

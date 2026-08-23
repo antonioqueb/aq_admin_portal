@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api } from '../api'
 import { useApp } from '../context'
 import RecordTable from '../components/RecordTable'
 import Many2one from '../components/Many2one'
 
 export default function ResourceList() {
   const { resource = '' } = useParams()
-  const { schema, toast } = useApp()
+  const { schema, toast, rapi, base, user, app } = useApp()
   const nav = useNavigate()
   const [sp, setSp] = useSearchParams()
   const res = schema?.resources[resource]
@@ -20,8 +19,8 @@ export default function ResourceList() {
   const filters = useMemo(() => { const f: Record<string, any> = {}; sp.forEach((v, k) => { if (k.startsWith('f.')) f[k.slice(2)] = v }); return f }, [sp])
   const load = useCallback(() => {
     if (!res) return
-    api.list(resource, { search, filters, order: order || undefined, limit, offset }).then(r => { setRecords(r.records); setTotal(r.total) }).catch(e => toast(e.message, 'err'))
-  }, [res, resource, search, filters, order, offset, toast])
+    rapi.list(resource, { search, filters, order: order || undefined, limit, offset }).then(r => { setRecords(r.records); setTotal(r.total) }).catch(e => toast(e.message, 'err'))
+  }, [res, resource, search, filters, order, offset, toast, rapi])
   useEffect(() => { setOffset(0) }, [resource, search, filters])
   useEffect(() => { load() }, [load])
   if (!res) return <div className="empty">Recurso no disponible para su rol.</div>
@@ -32,8 +31,10 @@ export default function ResourceList() {
   }
   const onSort = (f: string) => setOrder(order === f + ' asc' ? f + ' desc' : f + ' asc')
   const exportCsv = async () => {
+    if (!user?.can_export) { toast('Exportación controlada: su cuenta no tiene permiso de exportación. Solicítelo a Dirección / propietario de plataforma.', 'err'); return }
+    if (app === 'ops') { window.open(rapi.exportUrl(resource, { search, filters }), '_blank'); return }
     try {
-      const r = await api.list(resource, { search, filters, order: order || undefined, limit: 500, offset: 0 })
+      const r = await rapi.list(resource, { search, filters, order: order || undefined, limit: 500, offset: 0 })
       const cols = res.list.filter(c => res.fields[c])
       const cell = (c: string, v: any) => {
         const f = res.fields[c]
@@ -57,7 +58,7 @@ export default function ResourceList() {
         <div><h1>{res.label}</h1><div style={{ color: '#6b7280', fontSize: 12 }}>{total} registros</div></div>
         <span className="spacer" />
         <button className="btn secondary" onClick={exportCsv}>Exportar CSV</button>
-        {res.can.create && <button className="btn" onClick={() => nav(`/r/${resource}/new`)}>+ Nuevo {res.singular.toLowerCase()}</button>}
+        {res.can.create && <button className="btn" onClick={() => nav(`${base}/r/${resource}/new`)}>+ Nuevo {res.singular.toLowerCase()}</button>}
       </div>
       <div className="card tight">
         <div className="filters">
@@ -71,7 +72,7 @@ export default function ResourceList() {
           })}
           {Object.keys(filters).length > 0 && <button className="btn link small" onClick={() => setSp(new URLSearchParams())}>Limpiar filtros</button>}
         </div>
-        <RecordTable res={res} records={records} onOpen={r => nav(`/r/${resource}/${r.id}`)} order={order} onSort={onSort} />
+        <RecordTable res={res} records={records} onOpen={r => nav(`${base}/r/${resource}/${r.id}`)} order={order} onSort={onSort} />
         <div className="pager">
           <button className="btn secondary small" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>‹ Anterior</button>
           <span>{offset + 1}–{Math.min(offset + limit, total)} de {total}</span>

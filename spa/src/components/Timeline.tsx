@@ -1,23 +1,24 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, fmtDate } from '../api'
+import { fmtDate } from '../api'
 import { useApp } from '../context'
 
 const ACTION: Record<string, string> = { create: 'Creó', write: 'Modificó', unlink: 'Archivó/eliminó', action: 'Ejecutó', upload: 'Subió archivo', denied: 'Acceso denegado' }
 
 export default function Timeline({ resource, id }: { resource: string; id: number }) {
-  const { toast } = useApp()
+  const { toast, rapi, app, user } = useApp()
+  const [clientVisible, setClientVisible] = useState(false)
   const [data, setData] = useState<{ messages: any[]; audit: any[] }>({ messages: [], audit: [] })
   const [note, setNote] = useState('')
-  const load = useCallback(() => api.messages(resource, id).then(setData).catch(() => {}), [resource, id])
+  const load = useCallback(() => rapi.messages(resource, id).then(setData).catch(() => {}), [resource, id])
   useEffect(() => { load() }, [load])
   const send = async () => {
     if (!note.trim()) return
-    try { await api.note(resource, id, note); setNote(''); toast('Nota registrada', 'ok'); load() } catch (e: any) { toast(e.message, 'err') }
+    try { await rapi.note(resource, id, note, clientVisible); setNote(''); toast('Nota registrada', 'ok'); load() } catch (e: any) { toast(e.message, 'err') }
   }
   return (
     <div>
       <div className="field"><label>Registrar nota / evidencia (queda en la bitácora)</label><textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Ej. Se solicitó actualización por correo al responsable…" /></div>
-      <button className="btn small" onClick={send}>Registrar nota</button>
+      <div className="toolbar"><button className="btn small" onClick={send}>Registrar nota</button>{app === 'ops' && !user?.is_external && <label className="check" style={{ padding: 0 }}><input type="checkbox" checked={clientVisible} onChange={e => setClientVisible(e.target.checked)} /> Visible para el cliente</label>}</div>
       <h3 style={{ marginTop: 16 }}>Historial</h3>
       <ul className="timeline">
         {data.messages.map(m => (

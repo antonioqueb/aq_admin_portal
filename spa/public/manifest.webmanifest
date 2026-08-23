@@ -1,0 +1,10 @@
+{
+  "name": "AlphaQueb · Portal administrativo y Operaciones",
+  "short_name": "AlphaQueb",
+  "start_url": "/admin-portal/",
+  "scope": "/admin-portal/",
+  "display": "standalone",
+  "background_color": "#0a0a0c",
+  "theme_color": "#0a0a0c",
+  "icons": [{ "src": "/aq_admin_portal/static/description/icon.png", "sizes": "140x140", "type": "image/png" }, { "src": "/aq_admin_portal/static/description/logo.png", "sizes": "600x289", "type": "image/png" }]
+}

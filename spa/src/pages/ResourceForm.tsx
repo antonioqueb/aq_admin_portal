@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
+import OpsExtras from '../components/OpsExtras'
+import AdminExtras from '../components/AdminExtras'
 import { useApp } from '../context'
 import { FieldRow } from '../components/Field'
 import SubTable from '../components/SubTable'
@@ -10,7 +12,7 @@ import Timeline from '../components/Timeline'
 export default function ResourceForm() {
   const { resource = '', id } = useParams()
   const [sp] = useSearchParams()
-  const { schema, user, toast } = useApp()
+  const { schema, user, toast, rapi, base, app } = useApp()
   const nav = useNavigate()
   const res = schema?.resources[resource]
   const isNew = !id
@@ -25,30 +27,30 @@ export default function ResourceForm() {
       sp.forEach((v, k) => { if (k.startsWith('d.')) { const fn = k.slice(2); const f = res.fields[fn]; if (f?.type === 'many2one') d[fn] = { id: Number(v), name: sp.get('n.' + fn) || '#' + v }; else d[fn] = v } })
       setRec(d); setDirty(d); return
     }
-    api.read(resource, Number(id)).then(r => { setRec(r.record); setDirty({}) }).catch(e => { toast(e.message, 'err'); nav(`/r/${resource}`) })
-  }, [res, resource, id, isNew, sp, toast, nav])
+    rapi.read(resource, Number(id)).then(r => { setRec(r.record); setDirty({}) }).catch(e => { toast(e.message, 'err'); nav(`${base}/r/${resource}`) })
+  }, [res, resource, id, isNew, sp, toast, nav, rapi, base])
   useEffect(() => { load() }, [load])
   if (!res) return <div className="empty">Recurso no disponible para su rol.</div>
   if (!rec) return <div className="empty">Cargando…</div>
   const canWrite = isNew ? res.can.create : res.can.write
-  const canDirection = user?.role === 'direccion'
+  const canDirection = app === 'ops' ? true : user?.role === 'direccion'
   const value = (f: string) => (f in dirty ? dirty[f] : rec[f])
   const set = (f: string, v: any) => setDirty(d => ({ ...d, [f]: v }))
   const save = async () => {
     setSaving(true)
     try {
-      if (isNew) { const r = await api.create(resource, dirty); toast('Creado', 'ok'); nav(`/r/${resource}/${r.record.id}`, { replace: true }) }
-      else { const r = await api.write(resource, Number(id), dirty); setRec(r.record); setDirty({}); toast('Guardado', 'ok') }
+      if (isNew) { const r = await rapi.create(resource, dirty); toast('Creado', 'ok'); nav(`${base}/r/${resource}/${r.record.id}`, { replace: true }) }
+      else { const r = await rapi.write(resource, Number(id), dirty); setRec(r.record); setDirty({}); toast('Guardado', 'ok') }
     } catch (e: any) { toast(e.message, 'err') } finally { setSaving(false) }
   }
   const run = async (a: { name: string; label: string }) => {
     if (Object.keys(dirty).length && !confirm('Hay cambios sin guardar. ¿Ejecutar la acción de todos modos?')) return
     if (!confirm(`¿Ejecutar "${a.label}"?`)) return
-    try { const r = await api.action(resource, Number(id), a.name); setRec(r.record); toast(`${a.label}: realizado`, 'ok') } catch (e: any) { toast(e.message, 'err') }
+    try { const r = await rapi.action(resource, Number(id), a.name); setRec(r.record); toast(`${a.label}: realizado`, 'ok') } catch (e: any) { toast(e.message, 'err') }
   }
   const remove = async () => {
     if (!confirm('¿Archivar/eliminar este registro? Esta acción queda en la bitácora.')) return
-    try { await api.remove(resource, Number(id)); toast('Registro archivado', 'ok'); nav(`/r/${resource}`) } catch (e: any) { toast(e.message, 'err') }
+    try { await api.remove(resource, Number(id)); toast('Registro archivado', 'ok'); nav(`${base}/r/${resource}`) } catch (e: any) { toast(e.message, 'err') }
   }
   const groupedFields = new Set(res.groups.flatMap(g => g.fields))
   const tabFields = new Set(res.tabs.map(t => t.field))
@@ -57,7 +59,7 @@ export default function ResourceForm() {
     <div>
       <div className="toolbar">
         <div>
-          <div style={{ fontSize: 12, color: '#6b7280' }}><a href="#" onClick={e => { e.preventDefault(); nav(`/r/${resource}`) }}>{res.label}</a> / {isNew ? 'Nuevo' : rec.display_name}</div>
+          <div style={{ fontSize: 12, color: '#6b7280' }}><a href="#" onClick={e => { e.preventDefault(); nav(`${base}/r/${resource}`) }}>{res.label}</a> / {isNew ? 'Nuevo' : rec.display_name}</div>
           <h1>{isNew ? `Nuevo ${res.singular.toLowerCase()}` : rec.display_name}</h1>
         </div>
         <span className="spacer" />
@@ -77,6 +79,8 @@ export default function ResourceForm() {
         </div>
       )}
       {res.sensitive && <div className="alert info">Información confidencial: no elimine, mueva ni sustituya documentos de este expediente sin validación de Dirección.</div>}
+      {!isNew && app === 'ops' && <OpsExtras resource={resource} record={rec} reload={load} />}
+      {!isNew && app === 'admin' && <AdminExtras resource={resource} record={rec} />}
       {!isNew && (
         <div className="tabs">
           <button className={tab === 'form' ? 'active' : ''} onClick={() => setTab('form')}>Ficha</button>

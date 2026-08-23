@@ -54,8 +54,9 @@ def _log(user, action, **kw):
     request.env["aq.portal.audit.log"].sudo().log(user, action, ip=_ip(), **kw)
 
 
-def portal_route(path, methods=("GET",), auth_required=True, roles=None):
-    """Decorador: ruta HTTP JSON pública con autenticación por token del portal."""
+def portal_route(path, methods=("GET",), auth_required=True, roles=None, app="admin"):
+    """Decorador: ruta HTTP JSON pública con autenticación por token del portal.
+    app: 'admin' exige acceso al portal administrativo; 'ops' al de Operaciones; None = identidad compartida."""
     def decorator(func):
         @http.route(path, type="http", auth="public", csrf=False, methods=list(methods) + ["OPTIONS"], cors="*", save_session=False)
         @functools.wraps(func)
@@ -67,6 +68,12 @@ def portal_route(path, methods=("GET",), auth_required=True, roles=None):
                 user = _user()
                 if not user:
                     return _json({"error": _("Sesión no válida o expirada."), "code": 401}, status=401)
+                if app == "admin" and not user.has_admin_access:
+                    _log(user, "denied", summary="admin app: %s" % path)
+                    return _json({"error": _("Su cuenta no tiene acceso al portal administrativo."), "code": 403}, status=403)
+                if app == "ops" and not (user.has_ops_access and user.ops_role):
+                    _log(user, "denied", summary="ops app: %s" % path)
+                    return _json({"error": _("Su cuenta no tiene acceso a Operaciones."), "code": 403}, status=403)
                 if roles and user.role not in roles:
                     _log(user, "denied", summary="%s %s" % (request.httprequest.method, path))
                     return _json({"error": _("No tiene permisos para esta operación."), "code": 403}, status=403)
@@ -244,16 +251,65 @@ class PortalApi(http.Controller):
         except AccessDenied as e:
             request.env.cr.commit()  # persistir contador de intentos fallidos
             return _json({"error": str(e.args[0]) if e.args else _("Acceso denegado"), "code": 401}, status=401)
+        if user.mfa_enabled:
+            request.env["aq.portal.session"].sudo().search([("user_id", "=", user.id)], order="id desc", limit=1).write({"mfa_pending": True})
+            return _json({"mfa_required": True, "token": token})
         _log(user, "login", summary=_("Inicio de sesión"))
-        return _json({"token": token, "user": user.to_public_dict()})
+        return _json({"token": token, "user": user.to_public_dict(), "mfa_setup_required": bool(user.mfa_required and not user.mfa_enabled)})
 
-    @portal_route(API + "/auth/logout", methods=["POST"])
+    @portal_route(API + "/auth/mfa/verify", methods=["POST"], auth_required=False, app=None)
+    def mfa_verify(self, _u):
+        body = _body()
+        user = request.env["aq.portal.user"].sudo().from_token(body.get("token"), allow_pending=True)
+        if not user:
+            return _json({"error": _("Sesión no válida"), "code": 401}, status=401)
+        user.mfa_verify(body.get("code"))
+        request.env["aq.portal.session"].sudo().search([("user_id", "=", user.id), ("mfa_pending", "=", True)]).write({"mfa_pending": False})
+        _log(user, "login", summary=_("Inicio de sesión con MFA"))
+        return _json({"token": body.get("token"), "user": user.to_public_dict()})
+
+    @portal_route(API + "/me/mfa/setup", methods=["POST"], app=None)
+    def mfa_setup(self, user):
+        return _json(user.mfa_begin_setup())
+
+    @portal_route(API + "/me/mfa/confirm", methods=["POST"], app=None)
+    def mfa_confirm(self, user):
+        user.mfa_confirm_setup(_body().get("code"))
+        _log(user, "write", summary=_("MFA activado"))
+        return _json({"ok": True, "user": user.to_public_dict()})
+
+    @portal_route(API + "/me/mfa/disable", methods=["POST"], app=None)
+    def mfa_disable(self, user):
+        if user.mfa_required:
+            raise UserError(_("Su perfil exige MFA; no puede desactivarlo."))
+        user.mfa_disable()
+        return _json({"ok": True, "user": user.to_public_dict()})
+
+    @portal_route(API + "/events/emit", methods=["POST"], roles=["direccion"])
+    def emit_event(self, user):
+        """Administración → Operaciones: solo señales autorizadas (contrato, alcance, horas, condición, pago, restricción, vencimiento)."""
+        body = _body()
+        allowed = ("contract_active", "contract_suspended", "scope_authorized", "hours_authorized", "commercial_condition", "payment_confirmed", "payment_restriction", "contract_expiring")
+        if body.get("event_type") not in allowed:
+            return _error(_("Tipo de evento no autorizado"), 403)
+        proj = request.env["aq.portal.project"].sudo().browse(int(body.get("admin_project_id", 0))).exists()
+        ops = request.env["aq.ops.project"].sudo().browse(int(body.get("ops_project_id", 0))).exists()
+        if not proj and not ops:
+            return _error(_("Indique el proyecto"), 400)
+        ev = request.env["aq.ops.event"].sudo().create({"direction": "admin", "event_type": body["event_type"], "payload": json.dumps(body.get("payload") or {}, ensure_ascii=False),
+                                                        "source_model": "aq.portal.project", "source_id": proj.id if proj else 0, "admin_project_id": proj.id if proj else False,
+                                                        "ops_project_id": ops.id if ops else False})
+        ev.process()
+        _log(user, "action", resource="events", model="aq.ops.event", res_id=ev.id, summary=ev.summary)
+        return _json({"event": {"id": ev.id, "state": ev.state, "summary": ev.summary, "error": ev.error}})
+
+    @portal_route(API + "/auth/logout", methods=["POST"], app=None)
     def logout(self, user):
         request.env["aq.portal.user"].sudo().logout_token(_token())
         _log(user, "logout", summary=_("Cierre de sesión"))
         return _json({"ok": True})
 
-    @portal_route(API + "/auth/me", methods=["GET"])
+    @portal_route(API + "/auth/me", methods=["GET"], app=None)
     def me(self, user):
         return _json({"user": user.to_public_dict()})
 
@@ -270,7 +326,7 @@ class PortalApi(http.Controller):
         _log(user, "write", summary=_("Contraseña restablecida con enlace"))
         return _json({"ok": True})
 
-    @portal_route(API + "/auth/change-password", methods=["POST"])
+    @portal_route(API + "/auth/change-password", methods=["POST"], app=None)
     def change_password(self, user):
         body = _body()
         if not user.check_password(body.get("current") or ""):
@@ -633,7 +689,7 @@ class PortalApi(http.Controller):
         request.env["aq.portal.alert"].sudo().with_context(portal_user_id=user.id).cron_daily()
         return _json({"ok": True})
 
-    @portal_route(API + "/me/preferences", methods=["PUT"])
+    @portal_route(API + "/me/preferences", methods=["PUT"], app=None)
     def me_prefs(self, user):
         body = _body()
         user.write({k: body[k] for k in ("notify_alerts", "timezone", "name") if k in body})

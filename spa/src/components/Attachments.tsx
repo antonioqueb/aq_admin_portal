@@ -3,14 +3,14 @@ import { api, fmtDate } from '../api'
 import { useApp } from '../context'
 
 export default function Attachments({ resource, id, canWrite }: { resource: string; id: number; canWrite: boolean }) {
-  const { toast, user } = useApp()
+  const { toast, user, rapi, app } = useApp()
   const [items, setItems] = useState<any[]>([])
   const inp = useRef<HTMLInputElement>(null)
-  const load = useCallback(() => api.attachments(resource, id).then(r => setItems(r.attachments)).catch(() => {}), [resource, id])
+  const load = useCallback(() => rapi.attachments(resource, id).then(r => setItems(r.attachments)).catch(() => {}), [resource, id])
   useEffect(() => { load() }, [load])
   const upload = async (files: FileList | null) => {
     if (!files || !files.length) return
-    try { await api.upload(resource, id, files); toast('Archivo(s) subido(s)', 'ok'); load() } catch (e: any) { toast(e.message, 'err') }
+    try { await rapi.upload(resource, id, files); toast('Archivo(s) subido(s)', 'ok'); load() } catch (e: any) { toast(e.message, 'err') }
   }
   const del = async (a: any) => {
     if (!confirm(`¿Eliminar "${a.name}"? Los documentos sensibles no deben eliminarse sin validación.`)) return
@@ -30,7 +30,7 @@ export default function Attachments({ resource, id, canWrite }: { resource: stri
           <li key={a.id}>
             <a href={api.downloadUrl(a.id)} target="_blank" rel="noreferrer">{a.name}</a>
             <span className="meta"> · {(a.size / 1024).toFixed(0)} KB · {fmtDate(a.date)}</span>
-            {(user?.role === 'direccion' || user?.role === 'coordinacion') && <button className="btn link small" onClick={() => del(a)}>eliminar</button>}
+            {app === 'admin' && (user?.role === 'direccion' || user?.role === 'coordinacion') && <button className="btn link small" onClick={() => del(a)}>eliminar</button>}
           </li>
         ))}
       </ul>

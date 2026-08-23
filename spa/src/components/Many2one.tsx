@@ -1,19 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api } from '../api'
+import { useApp } from '../context'
 
 interface Props { model: string; value: { id: number; name: string } | null; onChange: (v: { id: number; name: string } | null) => void; disabled?: boolean; resource?: string | null }
 
 export default function Many2one({ model, value, onChange, disabled, resource }: Props) {
+  const { rapi, base } = useApp()
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(false)
   const [opts, setOpts] = useState<{ id: number; name: string }[]>([])
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
-    const t = setTimeout(() => api.nameSearch(model, q).then(r => setOpts(r.results)).catch(() => setOpts([])), 200)
+    const t = setTimeout(() => rapi.nameSearch(model, q).then(r => setOpts(r.results)).catch(() => setOpts([])), 200)
     return () => clearTimeout(t)
-  }, [q, open, model])
+  }, [q, open, model, rapi])
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
     document.addEventListener('mousedown', h)
@@ -23,7 +24,7 @@ export default function Many2one({ model, value, onChange, disabled, resource }:
     return (
       <div className="sel m2o">
         <input type="text" value={value.name} readOnly disabled={disabled} onClick={() => !disabled && setOpen(true)} style={{ cursor: disabled ? 'default' : 'pointer' }} />
-        {resource && <Link to={`/r/${resource}/${value.id}`} title="Abrir">↗</Link>}
+        {resource && <Link to={`${base}/r/${resource}/${value.id}`} title="Abrir">↗</Link>}
         {!disabled && <a href="#" onClick={e => { e.preventDefault(); onChange(null) }} title="Quitar">✕</a>}
       </div>
     )

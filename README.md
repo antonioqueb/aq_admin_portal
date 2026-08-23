@@ -101,3 +101,87 @@ Autenticación `Authorization: Bearer <token>`.
 `Portal administrativo: alertas, rutinas y estados (diario)` — genera los checklists de rutina, actualiza
 estados de cobranza/pagos/obligaciones/contratos, recalcula alertas, alimenta la matriz de riesgos y envía
 el resumen diario de alertas a Dirección y Coordinación.
+
+---
+
+# Operaciones (AlphaOps) — segundo dominio en el mismo módulo
+
+Misma plataforma, dos dominios. **Identidad, organizaciones/clientes, branding, notificaciones, auditoría, usuarios e integraciones son compartidos**;
+contratos, cotizaciones, facturación, cobranza, CxP/CxC, bancos, tarifas/márgenes, legal y RH viven solo en Administración;
+planeación, requerimientos, backlog, tareas, riesgos, incidencias, minutas, decisiones, pruebas, validaciones, liberaciones,
+capacidad, evidencias y comunicación operativa viven solo en Operaciones. La separación existe en modelos (`aq.ops.*`), API
+(`/aq_portal/api/ops/...`), búsquedas, exportaciones y permisos por objeto — no solo en menús.
+
+## Selector de aplicación
+En **Usuarios del Portal** cada cuenta tiene *Acceso a Administración*, *Acceso a Operaciones* y *Perfil en Operaciones*.
+Quien tiene ambos ve el selector **Administración / Operaciones** en la barra superior; quien tiene uno, solo ese portal.
+Operaciones se identifica por nombre permanente, ícono propio, acento cian y navegación propia en la ruta `/admin-portal/ops`
+(puede publicarse como `ops.alphaqueb.com` apuntando a esa ruta). La barra muestra la organización y el proyecto activos.
+
+## Perfiles (17) y alcance (RBAC + ABAC)
+Propietario de plataforma, Director de Operaciones/PMO, PM, Líder funcional, Líder técnico, Consultor, Desarrollador, QA,
+Soporte/Guardia, Colaborador interno, Socio/subcontratista, Patrocinador del cliente, Product Owner del cliente, Validador
+departamental, Empleado solicitante, Observador/Auditor y Enlace administrativo. El alcance se calcula por organización
+(tenant), proyectos donde participa o proyectos asignados expresamente; los usuarios de cliente solo ven registros
+`client_visible` de su organización con campos sensibles redactados (`client_hidden`); el solicitante solo ve sus solicitudes;
+el enlace administrativo solo ve eventos. Acceso denegado por defecto; autorización comprobada por objeto en cada llamada.
+Seguridad adicional: **MFA TOTP** (obligatorio por perfil), invitaciones externas con caducidad, sesiones/dispositivos auditables,
+**break glass** con justificación y vigencia, exportaciones controladas (`Puede exportar`), revocación inmediata al cambiar
+perfil o desactivar, bitácora completa.
+
+## Estructura funcional
+| Sección | Pantalla | Modelos |
+|---|---|---|
+| 5.1 Mi trabajo | `/ops` (agenda de ejecución: asignado, hoy/semana, bloqueados, aprobaciones, solicitudes, menciones, reuniones, dependen de mí, horas pendientes, sin movimiento, riesgos/incidentes) | motor `aq.ops.engine.my_work` |
+| 5.2 Torre de control | `/ops/portfolio` (agrupación por cliente/PM/tipo/etapa/salud/prioridad/riesgo/dependencia, vistas guardadas y las 9 preguntas de Dirección) | `aq.ops.project` |
+| 5.3 Centro de mando | `/ops/projects/:id` (resumen en 2 minutos + vistas de trabajo) | `aq.ops.project`, hitos, ambientes, enlaces, reportes de estado |
+| 5.4 Solicitudes | `/ops/requests` (embudo único, clasificación en 11 tipos, 6 determinaciones, duplicados, conversión a elemento/cambio/incidente) | `aq.ops.request` |
+| 5.5 Alcance y backlog | Jerarquía objetivo→capacidad→épica→proceso→requerimiento→historia→entregable→tarea→prueba→cambio, un solo objeto | `aq.ops.item` |
+| 5.6 Planeación | `/ops/board`: backlog, Kanban (drag & drop, WIP), sprints, lista, calendario, cronograma, Gantt (plan original vs vigente), carga, dependencias, roadmap, por entregable, por cliente, personal; reprogramación controlada, recurrentes, plantillas | `aq.ops.item`, `aq.ops.sprint` |
+| 5.7 Reuniones y decisiones | agenda, participantes, minuta, transcripción, acuerdos (confirmación humana → tarea/cambio), preguntas abiertas, riesgos, documentos, próxima reunión; decisiones versionadas e inmutables | `aq.ops.meeting`, `aq.ops.meeting.agreement`, `aq.ops.decision` |
+| 5.8 RAID e incidentes | riesgos/supuestos/problemas/dependencias; incidentes con flujo de 11 pasos, SLA por severidad y acción preventiva automática | `aq.ops.raid`, `aq.ops.incident` |
+| 5.9 Calidad y aceptación | 16 estados de flujo, planes/casos/ejecuciones, defectos automáticos, aceptación electrónica inmutable con huella (aprobado/cambios/rechazado) y autoridad departamental | `aq.ops.test.*`, `aq.ops.acceptance` |
+| 5.10 Liberaciones | candidatos, ambientes, compuerta (respaldo, responsable, pruebas, aprobación, reversión), bitácora, verificación posterior, revisión post-liberación automática | `aq.ops.release`, `aq.ops.environment` |
+| 5.11 Tiempo y capacidad | temporizador, captura, clasificación, facturable, aprobación semanal (→ evento a Administración), capacidad por especialidad, ausencias, sobreasignación | `aq.ops.timesheet`, `aq.ops.capacity` |
+| 5.12 Portal del cliente | experiencia restringida dentro de Operaciones (`/ops` para perfiles de cliente) | motor `client_home` |
+| 5.13 Conocimiento | biblioteca con tipos (blueprint, AS-IS, TO-BE, GAP, manuales, runbooks…), Drive por referencia, versión vigente/canónica | `aq.ops.document` |
+| 5.14 Notificaciones | 12 categorías con prioridad y acción directa, correo, resúmenes diario/semanal, integraciones preparadas | `aq.ops.notification`, `aq.ops.integration` |
+| 5.15 Reportes | `/ops/reports`: los 20 indicadores (cumplimiento de hitos, desviación, predictibilidad, ciclo, bloqueado, antigüedad, no planificado, cambios, espera del cliente, aceptación, capacidad, estimado vs real, retrabajo, defectos, liberaciones, incidentes, SLA, salud, participación del cliente) | motor `ops_kpis` |
+
+## Flujos imprescindibles (implementados como reglas)
+* **Inicio**: `action_start` exige PM, alcance, equipo, validadores, primer hito, siguiente acción, fecha y ruta de escalación; emite *Proyecto listo para iniciar*.
+* **Cambio**: solicitud → clasificación → análisis → estimación e impacto → `action_send_commercial` (evento a Administración) → autorización en Administración (automática al autorizar el Control de cambios) → `action_incorporate` (backlog + alcance versionado) → aceptación → `action_accepted` (evento facturable).
+* **Validación**: listo para validar → aceptación electrónica inmutable → Operaciones actúa → Administración recibe *Entregable aceptado* / *Hito validado*.
+* **Incidente**: 11 pasos con verificaciones de documentación y liberación controlada para S1/S2.
+* **Cierre**: `action_ready_to_close` exige entregables aceptados y emite *Proyecto listo para cierre* (facturación final).
+
+## Eventos entre dominios (outbox)
+`aq.ops.event` registra y procesa proyecciones: Ops→Admin (listo para iniciar, cambio solicitado, estimación aprobada, hito validado,
+horas aprobadas, entregable aceptado, listo para cierre, trabajo administrativo remitido) y Admin→Ops (contrato activo/suspendido,
+alcance autorizado, horas autorizadas, condición comercial, pago confirmado, restricción, contrato por vencer). Dirección envía
+señales desde la ficha del proyecto administrativo; `POST /aq_portal/api/events/emit`.
+
+## Automatizaciones (gobernadas, con propietario e historial)
+Las 16 del documento están en **Configuración → Automatizaciones** (`aq.ops.automation`), ejecutadas por el cron diario/semanal
+o integradas en el flujo (bloqueo de liberaciones incompletas, revisión post-liberación, tareas desde minutas tras confirmación).
+
+## Copiloto de IA — DeepSeek por API
+**Configuración → Integraciones → DeepSeek**: URL base `https://api.deepseek.com`, modelo `deepseek-chat`, API key, activar.
+Usa el endpoint compatible `/chat/completions`. Capacidades: resumir reuniones y proponer acuerdos/tareas/preguntas/riesgos,
+explicar por qué un proyecto está en rojo, recomendar siguiente acción, detectar duplicados, sugerir dependencias, comparar
+alcance con una solicitud, preparar casos de prueba, resumir incidentes, borrador de reporte. Sin clave usa heurísticas locales.
+Por diseño **no** aprueba, altera alcance, acepta entregables, autoriza liberaciones, cambia fechas, envía comunicaciones
+vinculantes, cierra incidentes ni toma decisiones comerciales: toda propuesta requiere confirmación humana.
+
+## Plantillas
+Nueve plantillas (`data/ops_templates.xml`) con fases/hitos y elementos iniciales: blueprint, implementación Odoo, desarrollo,
+migración, soporte, regulado, capacitación, cierre/handoff y creativo/catálogo. Se aplican al crear el proyecto.
+
+## Fase 3 y operación
+* **PWA**: manifest + service worker (`/admin-portal/sw.js`): instalable en móvil/escritorio, cascarón sin conexión y última información conocida en modo lectura.
+* **Actualización en vivo**: sondeo ligero `/ops/live` (45 s) con aviso de nuevas notificaciones; indicador de desconexión.
+* **Canales**: portal, correo (resumen diario/semanal), **calendario ICS** (`/ops/calendar.ics`) y **webhooks** Teams / Slack / WhatsApp (Integraciones).
+* **Pronósticos**: consumo semanal, fecha de agotamiento de la bolsa, velocidad y fin pronosticado; **planeación predictiva de capacidad** a 4 semanas; **detección de anomalías** diaria.
+* **Vistas guardadas** en servidor (`aq.ops.saved.view`, personales o compartidas).
+* **Bitácora inmutable** (`aq.portal.audit.log` no admite edición ni borrado manual) y **políticas de retención** (`aq_ops.retention_days_*`).
+* Proyectos semilla con plantilla aplicada: Stonia, SAI, Hexágonos, One of a Kind y Getting Ready.

@@ -9,6 +9,10 @@
                 <field name="login"/>
                 <field name="email"/>
                 <field name="role"/>
+                <field name="has_admin_access"/>
+                <field name="has_ops_access"/>
+                <field name="ops_role"/>
+                <field name="organization_id"/>
                 <field name="member_id"/>
                 <field name="last_login"/>
                 <field name="active"/>
@@ -45,6 +49,28 @@
                         </group>
                     </group>
                     <notebook>
+                        <page string="Aplicaciones y Operaciones">
+                            <group>
+                                <group string="Selector de aplicación">
+                                    <field name="has_admin_access"/>
+                                    <field name="has_ops_access"/>
+                                    <field name="ops_role"/>
+                                    <field name="can_export"/>
+                                </group>
+                                <group string="Alcance (ABAC)">
+                                    <field name="organization_id"/>
+                                    <field name="department"/>
+                                    <field name="ops_project_ids" widget="many2many_tags"/>
+                                    <field name="is_external"/>
+                                    <field name="invite_expiry"/>
+                                </group>
+                                <group string="MFA">
+                                    <field name="mfa_required"/>
+                                    <field name="mfa_enabled"/>
+                                    <field name="last_device"/>
+                                </group>
+                            </group>
+                        </page>
                         <page string="Sesiones">
                             <field name="session_ids">
                                 <list editable="bottom">
