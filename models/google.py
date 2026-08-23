@@ -137,7 +137,7 @@ class GoogleAccount(models.Model):
             r = self.get("https://gmail.googleapis.com/gmail/v1/users/me/messages", {"q": q, "maxResults": max_results, "pageToken": token})
             out += r.get("messages", [])
             token = r.get("nextPageToken")
-            if not token or len(out) >= 200:
+            if not token or len(out) >= max_results:
                 break
         return out
 
@@ -403,17 +403,22 @@ class GoogleSync(models.AbstractModel):
         return True
 
     @api.model
-    def sync_account(self, acc):
+    def sync_account(self, acc, stages=None):
+        """Incremental: cada etapa confirma su trabajo (commit) para que una corrida larga no se pierda."""
         acc = acc.sudo()
-        if acc.sync_calendar:
-            self.sync_calendar(acc)
-        if acc.sync_meet:
-            self.sync_meet(acc)
-        if acc.sync_drive:
-            self.sync_drive(acc)
-        if acc.sync_gmail:
-            self.sync_gmail(acc)
-        acc.write({"state": "conectada", "last_error": False})
+        errors = []
+        for stage, flag in (("calendar", acc.sync_calendar), ("meet", acc.sync_meet), ("drive", acc.sync_drive), ("gmail", acc.sync_gmail)):
+            if not flag or (stages and stage not in stages):
+                continue
+            try:
+                getattr(self, "sync_" + stage)(acc)
+                self.env.cr.commit()
+            except Exception as e:  # noqa
+                _logger.exception("Google %s", stage)
+                self.env.cr.rollback()
+                errors.append("%s: %s" % (stage, str(e)[:200]))
+        acc.write({"state": "error" if errors else "conectada", "last_error": "\n".join(errors) if errors else False})
+        self.env.cr.commit()
 
     # ------------------------------------------------------------------ Gmail → bandeja enrutada
     @api.model
@@ -424,7 +429,10 @@ class GoogleSync(models.AbstractModel):
         if acc.gmail_label_done:
             q += ' -label:"%s"' % acc.gmail_label_done
         n = 0
-        for ref in acc.gmail_list(q):
+        limit = int(self.env["ir.config_parameter"].sudo().get_param("aq_google.gmail_batch", "25"))
+        for ref in acc.gmail_list(q, max_results=limit):
+            if n >= limit:
+                break
             if Msg.search_count([("external_id", "=", ref["id"]), ("source", "=", "gmail")]):
                 continue
             full = acc.gmail_get(ref["id"])
@@ -442,6 +450,7 @@ class GoogleSync(models.AbstractModel):
             if label_done:
                 acc.gmail_add_label(ref["id"], label_done)
             n += 1
+            self.env.cr.commit()
         acc.write({"last_gmail_sync": fields.Datetime.now()})
         return n
 
@@ -480,7 +489,7 @@ class GoogleSync(models.AbstractModel):
         if AI.available():
             out = AI.chat("Clasifica este correo para AlphaQueb Consulting (consultora Odoo). Responde JSON {\"app\": \"admin\"|\"ops\", \"category\": meeting_notes|request|incident|invoice|payable|legal|hr|prospect|agreement|info|other, "
                           "\"summary\": str (2 líneas), \"action\": str (acción sugerida, una línea)}. Administración = contratos, facturación, cobranza, pagos, legal, RH, prospectos. "
-                          "Operaciones = proyectos, requerimientos, incidencias, reuniones, entregables.\nDe: %s\nAsunto: %s\nCuerpo:\n%s" % (msg.get("from"), msg.get("subject"), (msg.get("body") or "")[:5000]), json_mode=True, max_tokens=400)
+                          "Operaciones = proyectos, requerimientos, incidencias, reuniones, entregables.\nDe: %s\nAsunto: %s\nCuerpo:\n%s" % (msg.get("from"), msg.get("subject"), (msg.get("body") or "")[:3000]), json_mode=True, max_tokens=300)
         if out:
             try:
                 d = json.loads(out)
