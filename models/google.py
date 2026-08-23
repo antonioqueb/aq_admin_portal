@@ -461,7 +461,7 @@ class GoogleSync(models.AbstractModel):
 
     @api.model
     def cron_sync(self):
-        for acc in self.env["aq.google.account"].sudo().search([("state", "=", "conectada")]):
+        for acc in self.env["aq.google.account"].sudo().search([("refresh_token", "!=", False), ("active", "=", True)]):
             try:
                 self.sync_account(acc)
             except Exception as e:  # noqa
@@ -720,7 +720,9 @@ class GoogleSync(models.AbstractModel):
     # ------------------------------------------------------------------ salidas a Docs / Sheets
     @api.model
     def _account(self):
-        acc = self.env["aq.google.account"].sudo().search([("state", "=", "conectada")], limit=1)
+        """La conexión persiste por refresh token (sobrevive reinicios); un error transitorio de sincronización no la invalida."""
+        Acc = self.env["aq.google.account"].sudo()
+        acc = Acc.search([("state", "=", "conectada")], limit=1) or Acc.search([("refresh_token", "!=", False), ("active", "=", True)], limit=1)
         if not acc:
             raise UserError(_("No hay una cuenta de Google conectada (Integraciones → Google)."))
         return acc
