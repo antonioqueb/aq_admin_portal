@@ -30,11 +30,11 @@ class OpsAI(models.AbstractModel):
         parámetro del sistema aq_ops.deepseek_api_key, y por último el campo del registro de integración."""
         i = self._integration()
         icp = self.env["ir.config_parameter"].sudo()
-        key = (os.environ.get("DEEPSEEK_API_KEY") or icp.get_param("aq_ops.deepseek_api_key") or (i.api_key if i else "") or "").strip()
+        key = (os.environ.get("DEEPSEEK_API_KEY") or icp.get_param("aq_ops.deepseek_api_key") or icp.get_param("DEEPSEEK_API_KEY") or (i.api_key if i else "") or "").strip()
         enabled = bool(key) and (not i or i.enabled or bool(os.environ.get("DEEPSEEK_API_KEY")))
         return {"key": key, "enabled": enabled, "base_url": (os.environ.get("DEEPSEEK_BASE_URL") or (i.base_url if i else "") or "https://api.deepseek.com").rstrip("/"),
                 "model": os.environ.get("DEEPSEEK_MODEL") or (i.model if i else "") or "deepseek-chat", "record": i,
-                "source": "env" if os.environ.get("DEEPSEEK_API_KEY") else "param" if icp.get_param("aq_ops.deepseek_api_key") else "record" if key else "none"}
+                "source": "env" if os.environ.get("DEEPSEEK_API_KEY") else "param" if (icp.get_param("aq_ops.deepseek_api_key") or icp.get_param("DEEPSEEK_API_KEY")) else "record" if key else "none"}
 
     @api.model
     def available(self):
@@ -44,6 +44,15 @@ class OpsAI(models.AbstractModel):
     def status(self):
         c = self._config()
         return {"available": c["enabled"], "source": c["source"], "model": c["model"], "base_url": c["base_url"], "key_hint": ("…" + c["key"][-4:]) if c["key"] else ""}
+
+    @api.model
+    def test_connection(self):
+        """Prueba real contra DeepSeek; devuelve el texto o el error."""
+        try:
+            out = self.chat("Responde únicamente: OK", max_tokens=5)
+            return {"ok": bool(out), "answer": out, "status": self.status()}
+        except Exception as e:  # noqa
+            return {"ok": False, "error": str(e), "status": self.status()}
 
     @api.model
     def chat(self, prompt, system=SYSTEM, json_mode=False, max_tokens=1500):
