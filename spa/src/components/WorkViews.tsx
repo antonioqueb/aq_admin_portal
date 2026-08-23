@@ -14,6 +14,17 @@ export default function WorkViews({ items, sprints, reload, view, setView, proje
   const [sel, setSel] = useState<number[]>([])
   const [bulkState, setBulkState] = useState('')
   const [peek, setPeek] = useState<number | null>(null)
+  const [hideEmpty, setHideEmpty] = useState(localStorage.getItem('aq_kb_hide_empty') !== '0')
+  const [colW, setColW] = useState<number>(Number(localStorage.getItem('aq_kb_w')) || 340)
+  const [collapsed, setCollapsed] = useState<string[]>(() => JSON.parse(localStorage.getItem('aq_kb_collapsed') || '[]'))
+  const toggleCol = (st: string) => { const c = collapsed.includes(st) ? collapsed.filter(x => x !== st) : [...collapsed, st]; setCollapsed(c); localStorage.setItem('aq_kb_collapsed', JSON.stringify(c)) }
+  const dragScroll = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = e.currentTarget; if ((e.target as HTMLElement).closest('.kcard, input, select, button, a')) return
+    const sx = e.pageX, sl = el.scrollLeft; let moved = false
+    const mv = (ev: MouseEvent) => { moved = true; el.scrollLeft = sl - (ev.pageX - sx) }
+    const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); el.classList.remove('grabbing'); if (moved) el.dataset.moved = '1' }
+    el.classList.add('grabbing'); window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up)
+  }
   const [quickType, setQuickType] = useState<Record<string, string>>({})
   const [members, setMembers] = useState<{ id: number; name: string }[]>([])
   const nav = useNavigate()
@@ -72,16 +83,28 @@ export default function WorkViews({ items, sprints, reload, view, setView, proje
   return (
     <div>
       <div className="viewbar">{views.map(v => <button key={v[0]} className={view === v[0] ? 'on' : ''} onClick={() => setView(v[0])}>{v[1]}</button>)}<input type="text" placeholder="Filtrar…" value={q} onChange={e => setQ(e.target.value)} style={{ width: 180, marginLeft: 'auto' }} /></div>
-      {view === 'kanban' && (
-        <div className="kanban">
-          {STATES.filter(s => !external || !['backlog', 'por_hacer', 'en_progreso', 'bloqueado', 'desarrollo_completado', 'revision_tecnica', 'qa_interno', 'correccion', 'regresion'].includes(s[0])).map(([s, l]) => (
+      {view === 'kanban' && (<>
+        <div className="kb-tools">
+          <label className="check" style={{ padding: 0 }}><input type="checkbox" checked={hideEmpty} onChange={e => { setHideEmpty(e.target.checked); localStorage.setItem('aq_kb_hide_empty', e.target.checked ? '1' : '0') }} /> Ocultar columnas vacías</label>
+          <span style={{ fontFamily: 'var(--font-tech)', fontSize: 11, color: 'var(--muted)' }}>Ancho</span>
+          <input type="range" min={260} max={520} step={20} value={colW} onChange={e => { setColW(Number(e.target.value)); localStorage.setItem('aq_kb_w', e.target.value) }} style={{ width: 140 }} />
+          {collapsed.length > 0 && <button className="btn link small" onClick={() => { setCollapsed([]); localStorage.setItem('aq_kb_collapsed', '[]') }}>Expandir todas</button>}
+          <span style={{ fontSize: 11, color: 'var(--mute2)', marginLeft: 'auto' }}>Arrastra el fondo para desplazarte · Shift + rueda</span>
+        </div>
+        <div className="kanban" onMouseDown={dragScroll} style={{ ['--colw' as any]: colW + 'px' }}>
+          {STATES.filter(s => !external || !['backlog', 'por_hacer', 'en_progreso', 'bloqueado', 'desarrollo_completado', 'revision_tecnica', 'qa_interno', 'correccion', 'regresion'].includes(s[0])).filter(s => !hideEmpty || byState(s[0]).length > 0 || ['backlog', 'por_hacer', 'en_progreso'].includes(s[0])).map(([s, l]) => collapsed.includes(s) ? (
+            <div key={s} className="kcol collapsed" onClick={() => toggleCol(s)} title="Expandir"><span className="vert">{l} · {byState(s).length}</span></div>
+          ) : (
             <div key={s} className={'kcol' + (over === s ? ' over' : '')} onDragOver={e => { e.preventDefault(); setOver(s) }} onDragLeave={() => setOver(null)} onDrop={() => { if (drag && drag.state !== s) move(drag, { state: s }); setDrag(null); setOver(null) }}>
-              <h4>{l}<span>{byState(s).length}</span></h4>
-              {!external && projectMode && ['backlog', 'por_hacer', 'en_progreso'].includes(s) && <QuickAdd state={s} />}
-              {byState(s).map(i => <Card key={i.id} i={i} />)}
+              <h4><span>{l}</span><span className="cnt">{byState(s).length}<button className="fold" onClick={() => toggleCol(s)} title="Colapsar">‹</button></span></h4>
+              <div className="kbody">
+                {!external && projectMode && ['backlog', 'por_hacer', 'en_progreso'].includes(s) && <QuickAdd state={s} />}
+                {byState(s).map(i => <Card key={i.id} i={i} />)}
+                {byState(s).length === 0 && <div className="kempty">Suelta aquí</div>}
+              </div>
             </div>))}
         </div>
-      )}
+      </>)}
       {view === 'backlog' && (
         <div className="card tight">{!external && projectMode && <div style={{ marginBottom: 8 }}><QuickAdd state="backlog" /></div>}{rows.filter(i => ['backlog', 'por_hacer'].includes(i.state)).sort((a, b) => a.rank - b.rank).map((i, idx, arr) => (
           <div key={i.id} className="wl" style={{ cursor: 'pointer' }}>

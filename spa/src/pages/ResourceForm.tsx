@@ -27,7 +27,7 @@ export default function ResourceForm() {
       sp.forEach((v, k) => { if (k.startsWith('d.')) { const fn = k.slice(2); const f = res.fields[fn]; if (f?.type === 'many2one') d[fn] = { id: Number(v), name: sp.get('n.' + fn) || '#' + v }; else d[fn] = v } })
       setRec(d); setDirty(d); return
     }
-    rapi.read(resource, Number(id)).then(r => { setRec(r.record); setDirty({}); setTab(t => t === 'form' && res.tabs.length ? res.tabs[0].field : t) }).catch(e => { toast(e.message, 'err'); nav(`${base}/r/${resource}`) })
+    rapi.read(resource, Number(id)).then(r => { setRec(r.record); setDirty({}); setTab(t => { if (t !== 'form' || !res.tabs.length) return t; const first = res.tabs.find(tb => (r.record[tb.field] || []).length > 0); return first ? first.field : 'form' }) }).catch(e => { toast(e.message, 'err'); nav(`${base}/r/${resource}`) })
   }, [res, resource, id, isNew, sp, toast, nav, rapi, base])
   useEffect(() => { load() }, [load])
   if (!res) return <div className="empty">Recurso no disponible para su rol.</div>
