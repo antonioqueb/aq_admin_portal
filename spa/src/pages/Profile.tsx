@@ -9,6 +9,8 @@ export default function Profile() {
   const [notify, setNotify] = useState(!!user?.notify_alerts)
   const [setup, setSetup] = useState<{ secret: string; otpauth: string } | null>(null)
   const [code, setCode] = useState('')
+  const [theme, setThemeState] = useState(localStorage.getItem('aq_theme') || 'dark')
+  const setTheme = (t: string) => { setThemeState(t); localStorage.setItem('aq_theme', t); document.documentElement.setAttribute('data-theme', t) }
   const forced = localStorage.getItem('aq_mfa_setup') === '1' && user?.mfa_required && !user?.mfa_enabled
   useEffect(() => { if (forced) begin() }, [])  // eslint-disable-line
   if (!user) return null
@@ -28,6 +30,7 @@ export default function Profile() {
           <div className="field"><label>Correo</label><input type="text" value={user.email} disabled /></div>
           <div className="field"><label>Aplicaciones</label><div>{user.apps.map(a => <span key={a} className="badge primary" style={{ marginRight: 6 }}>{a === 'ops' ? 'Operaciones' : 'Administración'}</span>)}{user.organization_name && <span className="badge">{user.organization_name}</span>}</div></div>
           <label className="check"><input type="checkbox" checked={notify} onChange={e => setNotify(e.target.checked)} /> Recibir resúmenes por correo</label>
+          <div className="field"><label>Apariencia</label><div className="viewbar" style={{ marginBottom: 0 }}><button className={theme === 'dark' ? 'on' : ''} onClick={() => setTheme('dark')}>☾ Oscuro (predeterminado)</button><button className={theme === 'light' ? 'on' : ''} onClick={() => setTheme('light')}>☀ Claro</button></div></div>
           <div className="toolbar"><button className="btn" onClick={save}>Guardar</button><Link className="btn secondary" to="/change-password">Cambiar contraseña</Link></div>
         </div>
         <div className="card">

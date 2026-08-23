@@ -12,7 +12,7 @@ export default function Reset() {
     try { await api.reset(token, p1); setOk(true); setTimeout(() => nav('/login'), 1800) } catch (e: any) { setErr(e.message) }
   }
   return (
-    <div className="login">
+    <div className="login"><button className="theme-btn" style={{ position: 'fixed', top: 14, right: 14 }} onClick={() => { const t = (localStorage.getItem('aq_theme') || 'dark') === 'dark' ? 'light' : 'dark'; localStorage.setItem('aq_theme', t); document.documentElement.setAttribute('data-theme', t) }} aria-label="Tema">☀/☾</button>
       <form className="box" onSubmit={submit}>
         <img className="logo" src="/aq_admin_portal/static/description/logo.png" alt="AlphaQueb" />
         <h1>Nueva contraseña</h1>

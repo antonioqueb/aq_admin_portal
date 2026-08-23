@@ -23,5 +23,5 @@ export default function ChangePassword({ forced }: { forced?: boolean }) {
       <div className="toolbar"><button className="btn">Guardar</button>{forced && <button type="button" className="btn secondary" onClick={() => logout().then(() => nav('/login'))}>Salir</button>}</div>
     </form>
   )
-  return forced ? <div className="login">{inner}</div> : inner
+  return forced ? <div className="login"><button className="theme-btn" style={{ position: 'fixed', top: 14, right: 14 }} onClick={() => { const t = (localStorage.getItem('aq_theme') || 'dark') === 'dark' ? 'light' : 'dark'; localStorage.setItem('aq_theme', t); document.documentElement.setAttribute('data-theme', t) }} aria-label="Tema">☀/☾</button>{inner}</div> : inner
 }

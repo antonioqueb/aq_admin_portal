@@ -16,6 +16,8 @@ export const OpsIcon = ({ size = 18 }: { size?: number }) => (
 export default function Layout() {
   const { user, schema, logout, app, setApp, toast } = useApp()
   const [offline, setOffline] = useState(!navigator.onLine)
+  const [theme, setTheme] = useState(localStorage.getItem('aq_theme') || 'dark')
+  const toggleTheme = () => { const t = theme === 'dark' ? 'light' : 'dark'; setTheme(t); localStorage.setItem('aq_theme', t); document.documentElement.setAttribute('data-theme', t) }
   const nav = useNavigate()
   const loc = useLocation()
   const [open, setOpen] = useState(false)          // siempre oculto al abrir el portal
@@ -73,6 +75,7 @@ export default function Layout() {
           {current && <><i>/</i><b>{current}</b></>}
         </div>
         <button className="palette-btn" onClick={() => setPalette(true)}><span>⌕</span> Buscar o ir a… <kbd>⌘K</kbd></button>
+        <button className="theme-btn" onClick={toggleTheme} title={theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'} aria-label="Tema">{theme === 'dark' ? '☀' : '☾'}</button>
         <button className="bell" onClick={() => nav(isOps ? '/ops/notifications' : '/alerts')} aria-label="Notificaciones">{isOps ? '🔔' : '⚠'}{count > 0 && <em>{count > 99 ? '99+' : count}</em>}</button>
         <div className="avatar" title={user.name} onClick={() => nav('/profile')}>{initials(user.name)}<small>{roleLabel}</small></div>
       </header>
