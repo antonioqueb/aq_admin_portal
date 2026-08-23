@@ -32,8 +32,14 @@ class OpsAI(models.AbstractModel):
         icp = self.env["ir.config_parameter"].sudo()
         key = (os.environ.get("DEEPSEEK_API_KEY") or icp.get_param("aq_ops.deepseek_api_key") or icp.get_param("DEEPSEEK_API_KEY") or (i.api_key if i else "") or "").strip()
         enabled = bool(key) and (not i or i.enabled or bool(os.environ.get("DEEPSEEK_API_KEY")))
+        default = os.environ.get("DEEPSEEK_MODEL") or icp.get_param("aq_ops.deepseek_model_auto") or (i.model if i else "") or "deepseek-chat"
+        models = {  # niveles de uso definidos por Dirección
+            "fast": os.environ.get("DEEPSEEK_MODEL_FAST") or icp.get_param("aq_ops.deepseek_model_fast") or "deepseek-v4-flash",
+            "deep": os.environ.get("DEEPSEEK_MODEL_DEEP") or icp.get_param("aq_ops.deepseek_model_deep") or "deepseek-v4-pro",
+            "vision": os.environ.get("DEEPSEEK_MODEL_VISION") or icp.get_param("aq_ops.deepseek_model_vision") or "deepseek-v4-flash-vision-exp",
+        }
         return {"key": key, "enabled": enabled, "base_url": (os.environ.get("DEEPSEEK_BASE_URL") or (i.base_url if i else "") or "https://api.deepseek.com").rstrip("/"),
-                "model": os.environ.get("DEEPSEEK_MODEL") or icp.get_param("aq_ops.deepseek_model_auto") or (i.model if i else "") or "deepseek-chat", "record": i,
+                "model": default, "models": models, "record": i,
                 "source": "env" if os.environ.get("DEEPSEEK_API_KEY") else "param" if (icp.get_param("aq_ops.deepseek_api_key") or icp.get_param("DEEPSEEK_API_KEY")) else "record" if key else "none"}
 
     @api.model
@@ -74,7 +80,7 @@ class OpsAI(models.AbstractModel):
     @api.model
     def status(self):
         c = self._config()
-        return {"available": c["enabled"], "source": c["source"], "model": c["model"], "base_url": c["base_url"], "key_hint": ("…" + c["key"][-4:]) if c["key"] else ""}
+        return {"available": c["enabled"], "source": c["source"], "model": c["model"], "models": c["models"], "base_url": c["base_url"], "key_hint": ("…" + c["key"][-4:]) if c["key"] else ""}
 
     @api.model
     def test_connection(self):
@@ -86,13 +92,17 @@ class OpsAI(models.AbstractModel):
             return {"ok": False, "error": str(e), "status": self.status()}
 
     @api.model
-    def chat(self, prompt, system=SYSTEM, json_mode=False, max_tokens=1500):
-        """Llamada al endpoint compatible de DeepSeek (/chat/completions). Devuelve texto (o None sin integración)."""
+    def chat(self, prompt=None, system=SYSTEM, json_mode=False, max_tokens=1500, tier="fast", images=None):
+        """Llamada al endpoint compatible de DeepSeek. tier: fast (V4 Flash: transcripciones, extracción, clasificación,
+        resúmenes preliminares) | deep (V4 Pro: resumen ejecutivo final, análisis profundo, requerimientos técnicos) |
+        vision (Flash Vision Exp: capturas, diagramas, PDFs escaneados, evidencia). images: lista de data-URLs."""
         c = self._config()
         if not c["enabled"]:
             return None
         url = c["base_url"] + "/chat/completions"
-        body = {"model": c["model"], "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+        model = c["models"].get("vision" if images else tier, c["model"])
+        content = prompt if not images else ([{"type": "text", "text": prompt}] + [{"type": "image_url", "image_url": {"url": u}} for u in images[:4]])
+        body = {"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
                 "temperature": 0.2, "max_tokens": max_tokens}
         if json_mode:
             body["response_format"] = {"type": "json_object"}
@@ -114,7 +124,7 @@ class OpsAI(models.AbstractModel):
             raise UserError(_("La reunión no tiene transcripción, minuta ni agenda."))
         prompt = ("Resume esta reunión y extrae en JSON: {\"summary\": str, \"agreements\": [{\"name\", \"owner\", \"due_date\", \"kind\": compromiso|acuerdo|tarea|cambio}], "
                   "\"decisions\": [{\"name\", \"decision\"}], \"questions\": [str], \"risks\": [str]}. Proyecto: %s. Texto:\n%s") % (meeting.project_id.name, re.sub(r"<[^>]+>", " ", text)[:12000])
-        out = self.chat(prompt, json_mode=True, max_tokens=2500)
+        out = self.chat(prompt, json_mode=True, max_tokens=2500, tier="fast")
         if out is None:
             data = self._heuristic_meeting(text)
         else:
@@ -165,7 +175,7 @@ class OpsAI(models.AbstractModel):
     @api.model
     def draft_report(self, project):
         rep = self.env["aq.ops.status.report"].generate(project)
-        out = self.chat("Redacta un reporte de estado ejecutivo (máx. 200 palabras, HTML simple) para el cliente a partir de: %s" % re.sub(r"<[^>]+>", " ", rep.summary)[:6000])
+        out = self.chat("Redacta un reporte de estado ejecutivo (máx. 200 palabras, HTML simple) para el cliente a partir de: %s" % re.sub(r"<[^>]+>", " ", rep.summary)[:6000], tier="deep", max_tokens=1200)
         if out:
             rep.write({"summary": out + "<hr/>" + rep.summary, "generated_by_ai": True})
         return rep
@@ -185,7 +195,7 @@ class OpsAI(models.AbstractModel):
 
     @api.model
     def suggest_tests(self, item):
-        out = self.chat("Propón 5 casos de prueba (JSON {\"cases\": [{\"name\", \"steps\", \"expected\"}]}) para: %s. Criterios: %s" % (item.name, item.acceptance_criteria or item.description or ""), json_mode=True)
+        out = self.chat(tier="deep", prompt="Propón 5 casos de prueba (JSON {\"cases\": [{\"name\", \"steps\", \"expected\"}]}) para: %s. Criterios: %s" % (item.name, item.acceptance_criteria or item.description or ""), json_mode=True)
         cases = []
         if out:
             try:
@@ -269,7 +279,7 @@ class OpsAI(models.AbstractModel):
         extra += ("\nTexto base:\n%s" % text) if text else ""
         extra += ("\nInstrucciones adicionales: %s" % instructions) if instructions else ""
         prompt = "Registro (%s):\n%s\n\nTarea: %s%s" % (record._description, json.dumps(facts, ensure_ascii=False)[:9000], task_text, extra)
-        out = self.chat(prompt, max_tokens=1200)
+        out = self.chat(prompt, max_tokens=1200, tier="deep" if task in ("criteria", "risks") else "fast")
         if out is None:
             out = self._assist_heuristic(record, task, facts)
         return out
@@ -301,3 +311,21 @@ class OpsAI(models.AbstractModel):
     def digest_summary(self, lines):
         out = self.chat("Resume en 4 líneas ejecutivas, priorizando lo crítico, estas alertas/notificaciones:\n" + "\n".join(lines[:80]), max_tokens=400)
         return out or ""
+
+    # ------------------------------------------------------------------ visión (capturas, diagramas, PDFs escaneados, evidencia)
+    @api.model
+    def describe_attachments(self, attachments, question=None):
+        """Interpreta imágenes adjuntas (Flash Vision Experimental). Devuelve texto por archivo."""
+        import base64 as _b64
+        images, names = [], []
+        for a in attachments:
+            if (a.mimetype or "").startswith("image/") and a.datas:
+                images.append("data:%s;base64,%s" % (a.mimetype, a.datas.decode() if isinstance(a.datas, bytes) else a.datas))
+                names.append(a.name)
+            if len(images) >= 4:
+                break
+        if not images:
+            return _("No hay imágenes interpretables (solo se procesan imágenes; convierta los PDF escaneados a imagen).")
+        out = self.chat((question or "Describe e interpreta cada imagen para el equipo de proyecto: qué muestra, textos visibles, errores en pantalla, "
+                         "elementos de diagramas y cualquier dato relevante. Responde en español, por archivo: %s") % ", ".join(names), images=images, max_tokens=1500)
+        return out or _("Visión no disponible (configure DeepSeek).")

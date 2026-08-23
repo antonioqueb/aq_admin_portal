@@ -291,7 +291,11 @@ class GoogleMessage(models.Model):
     project_id = fields.Many2one("aq.ops.project", string="Proyecto detectado")
     ai_summary = fields.Text(string="Resumen del copiloto")
     ai_action = fields.Char(string="Acción sugerida")
-    state = fields.Selection([("nuevo", "Nuevo"), ("convertido", "Convertido"), ("ignorado", "Ignorado")], default="nuevo", index=True)
+    state = fields.Selection([("nuevo", "Nuevo"), ("procesado", "Procesado (resumen listo)"), ("convertido", "Convertido"), ("ignorado", "Ignorado")], default="nuevo", index=True)
+    transcript = fields.Text(string="Transcripción completa (del documento)")
+    exec_summary = fields.Html(string="Resumen ejecutivo", readonly=True)
+    summary_doc_url = fields.Char(string="Mi documento (plantilla) en Google Docs", readonly=True)
+    source_doc_url = fields.Char(string="Documento original (notas de Gemini)", readonly=True)
     res_model = fields.Char(string="Convertido en (modelo)")
     res_id = fields.Integer(string="Convertido en (id)")
     res_label = fields.Char(string="Convertido en")
@@ -349,6 +353,69 @@ class GoogleMessage(models.Model):
         for m in self:
             rec = self.env["aq.google.sync"].meeting_from_notes(m)
             m._done(rec, _("Reunión: %s") % rec.name)
+        return True
+
+    def full_text(self):
+        """Texto completo: prioriza el/los Google Docs referenciados (notas de Gemini con resumen + transcripción)."""
+        self.ensure_one()
+        body = self.transcript or self.body or ""
+        ids = re.findall(r"docs\.google\.com/document/d/([\w-]+)", (self.body or "") + " " + (self.link or ""))
+        if self.source == "drive" and self.external_id:
+            ids = [self.external_id] + ids
+        for did in dict.fromkeys(ids):
+            try:
+                t = self.account_id.doc_text(did)
+                if t and len(t) > len(body) * 0.5:
+                    self.write({"transcript": t[:120000], "source_doc_url": "https://docs.google.com/document/d/%s/edit" % did})
+                    return t
+            except Exception as e:  # noqa
+                _logger.info("doc_text %s: %s", did, e)
+        return body
+
+    def action_process_notes(self):
+        """Procesa la transcripción SIN requerir proyecto: resumen ejecutivo + documento con la plantilla propia + liga.
+        Si logra identificar proyecto/reunión, además la vincula y crea las actividades."""
+        Session = self.env["aq.ops.meeting"].sudo()
+        for m in self:
+            text = m.full_text()
+            if not (text or "").strip():
+                raise UserError(_("El mensaje no contiene transcripción ni documento legible."))
+            if not m.project_id:
+                m._detect()
+            linked = False
+            if m.project_id:
+                try:
+                    meeting = self.env["aq.google.sync"].meeting_from_notes(m)
+                    m._done(meeting, _("Reunión: %s") % meeting.name)
+                    m.write({"exec_summary": meeting.exec_summary, "summary_doc_url": meeting.summary_doc_url or meeting.google_doc_url})
+                    linked = True
+                except Exception as e:  # noqa
+                    _logger.info("vinculación: %s", e)
+            if not linked:
+                title = re.sub(r"^(notes|notas|transcripci[óo]n de meet)\s*[:\-–]*\s*", "", m.subject or _("Sesión"), flags=re.I).strip()[:150]
+                d = Session.build_exec_summary(title, m.project_id.name if m.project_id else None, m.date, text)
+                html = Session.exec_html(title, m.project_id.name if m.project_id else None, m.date, None, d)
+                url = False
+                try:
+                    url = Session.create_summary_doc_generic(title, m.project_id.name if m.project_id else None, m.partner_id.name if m.partner_id else None, m.date, d)
+                except Exception as e:  # noqa
+                    _logger.warning("Doc plantilla: %s", e)
+                m.write({"exec_summary": html, "summary_doc_url": url, "state": "procesado", "ai_summary": (d.get("resumen") or "")[:900],
+                         "res_label": _("Resumen generado (sin proyecto)") if not m.project_id else m.res_label})
+                Brand = self.env["aq.portal.branding"]
+                body_mail = Brand.wrap(_("Resumen ejecutivo · %s") % title, html + (("<p><a href='%s'>Mi documento (plantilla)</a></p>" % url) if url else "") + (("<p><a href='%s'>Notas originales de Gemini</a></p>" % m.source_doc_url) if m.source_doc_url else ""),
+                                       _("Ver en la bandeja"), Brand.portal_url() + "/ops/r/google_inbox/%d" % m.id)
+                for u in self.env["aq.portal.user"].sudo().search([("role", "=", "direccion"), ("active", "=", True)]):
+                    self.env["mail.mail"].sudo().create({"subject": _("Resumen ejecutivo · %s") % title, "email_to": u.email, "body_html": body_mail}).send()
+        return True
+
+    def action_assign_and_link(self):
+        """Tras asignar proyecto manualmente en la ficha: vincula a reunión y crea actividades."""
+        for m in self:
+            if not m.project_id:
+                raise UserError(_("Primero asigne el proyecto."))
+            meeting = self.env["aq.google.sync"].meeting_from_notes(m)
+            m._done(meeting, _("Reunión: %s") % meeting.name)
         return True
 
     def action_to_admin_agreement(self):
@@ -462,8 +529,7 @@ class GoogleSync(models.AbstractModel):
         if any(s in sender for s in MEET_SENDERS) or subj.startswith(("notes:", "notas:", "notas de la reunión", "notes from", "resumen de la reunión", "transcripción")):
             rec.write({"app": "ops", "category": "meeting_notes", "routed_by": "system"})
             try:
-                m = self.meeting_from_notes(rec)
-                rec.write({"state": "convertido", "res_model": m._name, "res_id": m.id, "res_label": _("Reunión: %s") % m.name})
+                rec.action_process_notes()
             except Exception as e:  # noqa
                 _logger.warning("Notas de Meet: %s", e)
             return
@@ -585,6 +651,10 @@ class GoogleSync(models.AbstractModel):
                 msg = self.env["aq.google.message"].sudo().create({"account_id": acc.id, "source": "meet", "external_id": rec["name"], "subject": _("Transcripción de Meet %s") % start, "body": text[:20000],
                                                                    "app": "ops", "category": "meeting_notes", "routed_by": "system", "date": fields.Datetime.to_datetime(start) if start else fields.Datetime.now()})
                 msg._detect()
+                try:
+                    msg.action_process_notes()
+                except Exception as e:  # noqa
+                    _logger.info("Meet standalone: %s", e)
                 continue
             m.with_context(aq_skip_activity=True).write({"transcript": text, "meet_record": rec["name"], "state": "realizada" if m.state == "programada" else m.state})
             try:
@@ -617,8 +687,7 @@ class GoogleSync(models.AbstractModel):
                               "date": fields.Datetime.to_datetime(f.get("modifiedTime", "")[:19].replace("T", " ")) if f.get("modifiedTime") else fields.Datetime.now(), "app": "ops", "category": "meeting_notes", "routed_by": "system"})
             rec._detect()
             try:
-                m = self.meeting_from_notes(rec)
-                rec.write({"state": "convertido", "res_model": m._name, "res_id": m.id, "res_label": _("Reunión: %s") % m.name})
+                rec.action_process_notes()
             except Exception as e:  # noqa
                 rec.write({"ai_action": str(e)[:200]})
             n += 1
@@ -638,13 +707,7 @@ class GoogleSync(models.AbstractModel):
             if not msg.project_id:
                 raise UserError(_("No se pudo asociar las notas a un proyecto; asigne el proyecto en la bandeja y vuelva a convertir."))
             m = Meeting.create({"name": title[:200], "project_id": msg.project_id.id, "date": msg.date or fields.Datetime.now(), "meeting_type": "cliente", "state": "realizada", "location": msg.link})
-        body = msg.body or ""
-        doc_links = re.findall(r"https://docs\.google\.com/document/d/([\w-]+)", body)
-        if doc_links and len(body) < 1500:
-            try:
-                body = msg.account_id.doc_text(doc_links[0]) or body
-            except Exception:
-                pass
+        body = msg.full_text()
         m.with_context(aq_skip_activity=True).write({"transcript": body if len(body) > 2000 else m.transcript, "minutes": (m.minutes or "") + "<p><b>%s</b></p><pre>%s</pre>" % (msg.subject, body[:6000].replace("<", "&lt;")) if len(body) <= 2000 else m.minutes or "<p>%s</p>" % msg.subject,
                                                      "state": "realizada"})
         try:

@@ -13,9 +13,11 @@ export default function OpsSessions() {
   const [form, setForm] = useState<any>({ project: null, type: '', date: today(), time: '10:00', duration: '', extra: '', agenda: '' })
   const [busy, setBusy] = useState(false)
   const [group, setGroup] = useState<'fecha' | 'proyecto'>('proyecto')
+  const [inbox, setInbox] = useState<any[]>([])
   const external = !!(schema?.is_external || user?.is_external)
   const owner = ['platform_owner', 'ops_director'].includes(user?.ops_role || '')
-  const load = useCallback(() => api.get('/ops/sessions/map', active ? { project_id: active.id } : {}).then(setD).catch((e: any) => toast(e.message, 'err')), [toast, active])
+  const { rapi } = useApp()
+  const load = useCallback(() => { api.get('/ops/sessions/map', active ? { project_id: active.id } : {}).then(setD).catch((e: any) => toast(e.message, 'err')); rapi.list('google_inbox', { limit: 30, order: 'date desc', filters: { category: 'meeting_notes' } }).then(r => setInbox(r.records)).catch(() => {}) }, [toast, active, rapi])
   useEffect(() => { load(); if (active && !form.project) setForm((f: any) => ({ ...f, project: { id: active.id, name: active.name } })) }, [load])  // eslint-disable-line
   const gen = async () => {
     if (!form.project || !form.type) { toast('Elija proyecto y tipo de sesión', 'err'); return }
@@ -57,6 +59,14 @@ export default function OpsSessions() {
           </div>
           <div className="field"><label>Agenda (opcional; si se omite, la del tipo)</label><textarea value={form.agenda} onChange={e => setForm({ ...form, agenda: e.target.value })} /></div>
           {form.project && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Folio siguiente: <b>{(() => { const p = d.projects.find((x: any) => x.project === form.project.name); const t = d.types.find((x: any) => x.id === Number(form.type)); if (!p) return '—'; return p.po ? `${p.po}-${p.prefix || ''}-Sesión #${(p.seq || 0) + 1} - ${t?.name || '…'}` : `SESIÓN #${(p.seq || 0) + 1}– ${p.prefix || '…'}– ${(t?.name || '…').toUpperCase()} | ${form.date.split('-').reverse().join('/')}` })()}</b> · Al terminar: transcripción → resumen ejecutivo IA en tu plantilla de Docs → correo → actividades creadas.</div>}
+        </div>
+      )}
+      {inbox.length > 0 && !external && (
+        <div className="card">
+          <h3>Transcripciones y notas recibidas (bandeja de reuniones)</h3>
+          <div className="table-wrap"><table className="list"><thead><tr><th>Fecha</th><th>Sesión</th><th>Origen</th><th>Proyecto</th><th>Estado</th><th>Documentos</th><th></th></tr></thead><tbody>
+            {inbox.map((m: any) => <tr key={m.id} className="row"><td>{fmtDate(m.date)}</td><td><Link to={`/ops/r/google_inbox/${m.id}`}>{m.subject}</Link></td><td>{m.source}</td><td>{m.project_id?.name || <span className="badge warn">sin proyecto</span>}</td><td><span className={'badge ' + (m.state === 'convertido' ? 'ok' : m.state === 'procesado' ? 'info' : '')}>{m.state}</span></td><td>{m.summary_doc_url && <a href={m.summary_doc_url} target="_blank" rel="noreferrer">Mi documento</a>}</td><td>{m.state === 'nuevo' && <button className="btn secondary small" onClick={() => rapi.action('google_inbox', m.id, 'action_process_notes').then(() => { toast('Procesada', 'ok'); load() }).catch((e: any) => toast(e.message, 'err'))}>Procesar</button>}</td></tr>)}
+          </tbody></table></div>
         </div>
       )}
       <div className="grid cols-4" style={{ marginBottom: 14 }}>

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api, ops } from '../api'
 import { useApp } from '../context'
 
-const TASKS: [string, string][] = [['summarize', 'Resumir'], ['next', 'Siguiente acción'], ['risks', 'Riesgos y dependencias'], ['questions', 'Preguntas abiertas'], ['criteria', 'Criterios de aceptación'], ['email', 'Correo al cliente'], ['draft', 'Redactar campo'], ['improve', 'Mejorar texto']]
+const TASKS: [string, string][] = [['summarize', 'Resumir'], ['next', 'Siguiente acción'], ['risks', 'Riesgos y dependencias'], ['questions', 'Preguntas abiertas'], ['criteria', 'Criterios de aceptación'], ['email', 'Correo al cliente'], ['draft', 'Redactar campo'], ['improve', 'Mejorar texto'], ['vision', 'Interpretar imágenes adjuntas']]
 
 /** Copiloto disponible en todas las fichas (Administración y Operaciones). Solo propone; tú decides qué insertar. */
 export default function Copilot({ resource, record, fields, value, set }: { resource: string; record: any; fields: Record<string, any>; value: (f: string) => any; set: (f: string, v: any) => void }) {

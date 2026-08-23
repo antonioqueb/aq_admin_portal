@@ -105,17 +105,8 @@ class OpsMeetingSession(models.Model):
             if not text.strip():
                 raise UserError(_("La sesión no tiene transcripción ni minuta."))
             data = AI.summarize_meeting(m)  # crea acuerdos propuestos + resumen corto
-            exec_json = None
-            out = AI.chat("Eres el redactor ejecutivo de AlphaQueb. A partir de la transcripción, produce JSON con secciones bien redactadas en español profesional: "
-                          "{\"objetivo\": str, \"resumen\": str (2-3 párrafos), \"temas\": [{\"titulo\", \"detalle\"}], \"decisiones\": [str], \"acuerdos\": [{\"acuerdo\", \"responsable\", \"fecha\"}], "
-                          "\"pendientes_cliente\": [str], \"riesgos\": [str], \"siguientes_pasos\": [str], \"proxima_sesion\": str}. Sesión: %s · Proyecto: %s · Fecha: %s.\nTranscripción:\n%s"
-                          % (m.name, m.project_id.name, m.date, text[:14000]), json_mode=True, max_tokens=2800)
-            if out:
-                try:
-                    exec_json = json.loads(out)
-                except Exception:
-                    exec_json = {"resumen": out}
-            exec_json = exec_json or {"objetivo": "", "resumen": data.get("summary") or text[:800], "temas": [], "decisiones": data.get("decisions") and [d.get("name") for d in data["decisions"]] or [],
+            exec_json = self.build_exec_summary(m.name, m.project_id.name, m.date, text)
+            exec_json = exec_json if exec_json.get("resumen") or exec_json.get("acuerdos") else {"objetivo": "", "resumen": data.get("summary") or text[:800], "temas": [], "decisiones": data.get("decisions") and [d.get("name") for d in data["decisions"]] or [],
                                       "acuerdos": [{"acuerdo": a.get("name"), "responsable": a.get("owner"), "fecha": a.get("due_date")} for a in data.get("agreements", [])],
                                       "pendientes_cliente": [], "riesgos": data.get("risks", []), "siguientes_pasos": [], "proxima_sesion": ""}
             html = self._exec_html(m, exec_json)
@@ -140,6 +131,48 @@ class OpsMeetingSession(models.Model):
             self.env["aq.ops.notification"].sudo().notify_role(m.project_id, ["pm"], "resumen", _("Resumen ejecutivo listo: %s") % m.name, "meetings", m.id)
         return True
 
+    @api.model
+    def build_exec_summary(self, name, project_name, date, text):
+        """Genera el JSON del resumen ejecutivo a partir de una transcripción, sin requerir reunión ni proyecto."""
+        AI = self.env["aq.ops.ai"].sudo()
+        out = AI.chat("Eres el redactor ejecutivo de AlphaQueb. A partir de la transcripción, produce JSON con secciones bien redactadas en español profesional: "
+                      "{\"objetivo\": str, \"resumen\": str (2-3 párrafos), \"temas\": [{\"titulo\", \"detalle\"}], \"decisiones\": [str], \"acuerdos\": [{\"acuerdo\", \"responsable\", \"fecha\"}], "
+                      "\"pendientes_cliente\": [str], \"riesgos\": [str], \"siguientes_pasos\": [str], \"proxima_sesion\": str}. Sesión: %s · Proyecto: %s · Fecha: %s.\nTranscripción:\n%s"
+                      % (name, project_name or "(por identificar)", date, text[:14000]), json_mode=True, max_tokens=2800, tier="deep")
+        if out:
+            try:
+                return json.loads(out)
+            except Exception:
+                return {"resumen": out}
+        # sin IA: heurística mínima
+        h = self.env["aq.ops.ai"]._heuristic_meeting(text)
+        return {"objetivo": "", "resumen": h.get("summary"), "temas": [], "decisiones": [], "acuerdos": h.get("agreements", []),
+                "pendientes_cliente": [], "riesgos": h.get("risks", []), "siguientes_pasos": [], "proxima_sesion": ""}
+
+    @api.model
+    def exec_html(self, name, project_name, date, folio, d):
+        class _M:  # adaptador mínimo
+            pass
+        m = _M(); m.name = name; m.folio = folio; m.date = date
+        class _P:
+            pass
+        m.project_id = _P(); m.project_id.name = project_name or "(por identificar)"
+        return self._exec_html(m, d)
+
+    @api.model
+    def create_summary_doc_generic(self, title, project_name, partner_name, date, d):
+        acc = self.env["aq.google.sync"]._account()
+        template = self.env["aq.ops.meeting"]._template_id(acc)
+        copy = acc.post("https://www.googleapis.com/drive/v3/files/%s/copy" % template, {"name": "Resumen · %s" % title[:120], "parents": [acc.drive_folder_id("AlphaOps")]})
+        did = copy["id"]
+        def txt(items, bullet="• "):
+            return "\n".join(bullet + (i if isinstance(i, str) else "%s — %s · %s" % (i.get("acuerdo", i.get("titulo", "")), i.get("responsable", i.get("detalle", "")) or "", i.get("fecha", "") or "")) for i in (items or [])) or "—"
+        repl = {"{{FOLIO}}": title, "{{PROYECTO}}": project_name or "(por identificar)", "{{CLIENTE}}": partner_name or "", "{{FECHA}}": str(date or ""),
+                "{{OBJETIVO}}": d.get("objetivo") or "—", "{{RESUMEN}}": d.get("resumen") or "—", "{{TEMAS}}": txt(d.get("temas")), "{{DECISIONES}}": txt(d.get("decisiones")),
+                "{{ACUERDOS}}": txt(d.get("acuerdos")), "{{PENDIENTES}}": txt(d.get("pendientes_cliente")), "{{RIESGOS}}": txt(d.get("riesgos")), "{{PASOS}}": txt(d.get("siguientes_pasos")), "{{PROXIMA}}": d.get("proxima_sesion") or "por definir"}
+        acc.post("https://docs.googleapis.com/v1/documents/%s:batchUpdate" % did, {"requests": [{"replaceAllText": {"containsText": {"text": k, "matchCase": True}, "replaceText": (v or "")[:6000]}} for k, v in repl.items()]})
+        return "https://docs.google.com/document/d/%s/edit" % did
+
     def _exec_html(self, m, d):
         def ul(items):
             items = [i for i in (items or []) if i]
@@ -151,6 +184,7 @@ class OpsMeetingSession(models.Model):
             m.name, m.project_id.name, m.date, m.folio or "—", d.get("objetivo") or "—", (d.get("resumen") or "").replace("\n", "<br/>"), temas,
             ul(d.get("decisiones")), acuerdos or "<li>—</li>", ul(d.get("pendientes_cliente")), ul(d.get("riesgos")), ul(d.get("siguientes_pasos")), d.get("proxima_sesion") or "por definir")
 
+    @api.model
     def _template_id(self, acc):
         icp = self.env["ir.config_parameter"].sudo()
         tid = icp.get_param("aq_google.session_template_doc_id")

@@ -654,7 +654,11 @@ class OpsApi(http.Controller):
         b = _body()
         if _effective_role(user) in CLIENT_ROLES and b.get("task") not in ("summarize", "questions", "draft", "improve"):
             raise AccessError(_("Tarea no disponible para su perfil."))
-        out = self._ai().assist(rec, b.get("task", "summarize"), b.get("field"), b.get("text"), b.get("instructions"))
+        if b.get("task") == "vision":
+            atts = request.env["ir.attachment"].sudo().search([("res_model", "=", cfg["model"]), ("res_id", "=", rec.id)], limit=6)
+            out = self._ai().describe_attachments(atts, b.get("instructions"))
+        else:
+            out = self._ai().assist(rec, b.get("task", "summarize"), b.get("field"), b.get("text"), b.get("instructions"))
         _log(user, "action", resource="ops:" + resource, model=cfg["model"], res_id=rec.id, summary=_("Copiloto: %s") % b.get("task"))
         return _json({"text": out, "ai": self._ai().available()})
 

@@ -568,7 +568,11 @@ class PortalApi(http.Controller):
         if not rec:
             return _error(_("Registro no encontrado"), 404)
         b = _body()
-        out = request.env["aq.ops.ai"].sudo().assist(rec, b.get("task", "summarize"), b.get("field"), b.get("text"), b.get("instructions"))
+        if b.get("task") == "vision":
+            atts = request.env["ir.attachment"].sudo().search([("res_model", "=", cfg["model"]), ("res_id", "=", rec.id)], limit=6)
+            out = request.env["aq.ops.ai"].sudo().describe_attachments(atts, b.get("instructions"))
+        else:
+            out = request.env["aq.ops.ai"].sudo().assist(rec, b.get("task", "summarize"), b.get("field"), b.get("text"), b.get("instructions"))
         _log(user, "action", resource=resource, model=cfg["model"], res_id=rec.id, summary=_("Copiloto: %s") % b.get("task"))
         return _json({"text": out, "ai": request.env["aq.ops.ai"].sudo().available()})
 
