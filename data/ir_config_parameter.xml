@@ -24,12 +24,8 @@
         <field name="key">aq_admin_portal.portal_path</field>
         <field name="value">/admin-portal</field>
     </record>
-    <record id="param_auto_confirm_agreements" model="ir.config_parameter">
-        <field name="key">aq_ops.auto_confirm_agreements</field>
-        <field name="value">1</field>
-    </record>
-    <record id="param_auto_approve_decisions" model="ir.config_parameter">
-        <field name="key">aq_ops.auto_approve_decisions</field>
-        <field name="value">1</field>
-    </record>
+    <!-- Parámetros que pueden preexistir (set_param desde código o UI): se siembran con set_param,
+         que es idempotente, y solo al instalar (noupdate); el código usa "1" como valor por defecto. -->
+    <function model="ir.config_parameter" name="set_param" eval="('aq_ops.auto_confirm_agreements', '1')"/>
+    <function model="ir.config_parameter" name="set_param" eval="('aq_ops.auto_approve_decisions', '1')"/>
 </odoo>
