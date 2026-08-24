@@ -23,6 +23,7 @@
         "data/ops_seed.xml",
         "data/google.xml",
         "data/session_types.xml",
+        "data/ai_prompts.xml",
         "views/portal_user_views.xml",
         "views/backend_views.xml",
         "views/menus.xml",

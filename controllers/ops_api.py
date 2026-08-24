@@ -553,9 +553,9 @@ class OpsApi(http.Controller):
         start = fields.Datetime.to_datetime(b["start"].replace("T", " ")[:19])
         m, ev = request.env["aq.ops.meeting"].sudo().with_context(portal_user_id=user.id).generate_session(
             project, stype, start, b.get("duration"), b.get("extra_emails") or [], b.get("agenda"), user,
-            attendees=b.get("attendees"), send_invites=b.get("send_invites", True))
+            attendees=b.get("attendees"), send_invites=b.get("send_invites", True), context_note=b.get("context"), share_note=b.get("share_note"))
         _log(user, "create", resource="ops:meetings", model="aq.ops.meeting", res_id=m.id, summary=_("Sesión generada: %s") % m.name)
-        share = request.env["aq.ops.meeting"].sudo().share_text(m.name, project, start, m.location)
+        share = request.env["aq.ops.meeting"].sudo().share_text(m.name, project, start, m.location, note=b.get("share_note"), duration=b.get("duration") or stype.duration_minutes)
         return _json({"meeting": {"id": m.id, "name": m.name, "folio": m.folio, "meet": m.location, "event": m.google_event_id, "date": str(m.date),
                                   "share_text": share, "attendees": b.get("attendees")}}, status=201)
 
@@ -567,6 +567,22 @@ class OpsApi(http.Controller):
         if not stype:
             return _error(_("Tipo inválido"), 400)
         return _json({"invitees": request.env["aq.ops.meeting"].sudo().suggested_invitees(project, stype)})
+
+    @portal_route(OPS + "/sessions/brief", methods=["POST"], app="ops")
+    def session_brief(self, user):
+        """Convierte un contexto breve en objetivo, agenda y mensaje de invitación (IA)."""
+        role = _effective_role(user)
+        if role in CLIENT_ROLES or role == "observer":
+            return _error(_("Sin permiso"), 403)
+        b = _body()
+        project = _get(OPS_RESOURCES["projects"], user, int(b["project_id"]))
+        stype = request.env["aq.ops.session.type"].sudo().browse(int(b["type_id"])).exists()
+        if not stype:
+            return _error(_("Tipo de sesión inválido"), 400)
+        start = fields.Datetime.to_datetime(b["start"].replace("T", " ")[:19]) if b.get("start") else None
+        out = request.env["aq.ops.meeting"].sudo().session_brief(project, stype, b.get("context"), start, b.get("duration"))
+        out["folio_preview"] = project.next_folio(stype.name, start or fields.Datetime.now())[1]
+        return _json(out)
 
     @portal_route(OPS + "/sessions/map", methods=["GET"], app="ops")
     def session_map(self, user):

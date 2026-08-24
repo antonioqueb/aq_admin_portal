@@ -50,4 +50,6 @@
     <menuitem id="menu_aq_google_account" name="Cuentas conectadas" parent="menu_aq_google" action="action_aq_google_account" sequence="10"/>
     <menuitem id="menu_aq_google_rule" name="Reglas de enrutamiento" parent="menu_aq_google" action="action_aq_google_rule" sequence="20"/>
     <menuitem id="menu_aq_google_message" name="Bandeja enrutada" parent="menu_aq_google" action="action_aq_google_message" sequence="30"/>
+    <record id="action_aq_ai_prompt" model="ir.actions.act_window"><field name="name">Biblioteca de prompts (IA)</field><field name="res_model">aq.ai.prompt</field><field name="view_mode">list,form</field></record>
+    <menuitem id="menu_aq_ai_prompt" name="Biblioteca de prompts (IA)" parent="menu_aq_ops_root" action="action_aq_ai_prompt" sequence="290"/>
 </odoo>

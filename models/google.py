@@ -211,6 +211,35 @@ class GoogleAccount(models.Model):
                 return f[0]["id"]
         return self.post("https://www.googleapis.com/drive/v3/files", {"name": name, "mimeType": "application/vnd.google-apps.folder"})["id"]
 
+    def drive_child_folder(self, name, parent_id):
+        """Subcarpeta dentro de una carpeta (para organizar por proyecto)."""
+        safe = name.replace("'", "\\'")
+        f = self.drive_search("name='%s' and mimeType='application/vnd.google-apps.folder' and trashed=false and '%s' in parents" % (safe, parent_id))
+        if f:
+            return f[0]["id"]
+        return self.post("https://www.googleapis.com/drive/v3/files", {"name": name, "mimeType": "application/vnd.google-apps.folder", "parents": [parent_id]})["id"]
+
+    def drive_share(self, file_id, emails, role="reader", notify=False):
+        """Comparte un archivo con los correos indicados (sin notificación de Google: el aviso lo manda el portal)."""
+        done = []
+        for e in dict.fromkeys([x.strip().lower() for x in emails if x and "@" in x]):
+            try:
+                self.post("https://www.googleapis.com/drive/v3/files/%s/permissions" % file_id,
+                          {"type": "user", "role": role, "emailAddress": e}, params={"sendNotificationEmail": "true" if notify else "false"})
+                done.append(e)
+            except Exception as ex:  # noqa
+                _logger.info("compartir %s con %s: %s", file_id, e, ex)
+        return done
+
+    def drive_export_pdf(self, file_id):
+        """Devuelve el PDF del documento en base64 (para adjuntarlo al correo)."""
+        import base64 as _b64
+        token = self._token()
+        r = requests.get("https://www.googleapis.com/drive/v3/files/%s/export" % file_id, params={"mimeType": "application/pdf"},
+                         headers={"Authorization": "Bearer " + token}, timeout=90)
+        r.raise_for_status()
+        return _b64.b64encode(r.content)
+
     def create_doc(self, title, text, folder_id=None):
         doc = self.post("https://docs.googleapis.com/v1/documents", {"title": title})
         self.post("https://docs.googleapis.com/v1/documents/%s:batchUpdate" % doc["documentId"], {"requests": [{"insertText": {"location": {"index": 1}, "text": text}}]})
@@ -555,6 +584,12 @@ class GoogleSync(models.AbstractModel):
         AI = self.env["aq.ops.ai"].sudo()
         out = None
         if AI.available():
+            lib = self.env["aq.ai.prompt"].sudo().render("email_routing", {"remitente": msg.get("from"), "asunto": msg.get("subject"), "cuerpo": (msg.get("body") or "")[:3000]})
+            if isinstance(lib, dict) and lib.get("app"):
+                rec.write({"app": lib.get("app") if lib.get("app") in ("admin", "ops") else "ops",
+                           "category": lib.get("category") if lib.get("category") in dict(rec._fields["category"].selection) else "other",
+                           "ai_summary": lib.get("summary"), "ai_action": lib.get("action"), "routed_by": "ai"})
+                return
             out = AI.chat("Clasifica este correo para Alphaqueb Consulting (consultora Odoo). Responde JSON {\"app\": \"admin\"|\"ops\", \"category\": meeting_notes|request|incident|invoice|payable|legal|hr|prospect|agreement|info|other, "
                           "\"summary\": str (2 líneas), \"action\": str (acción sugerida, una línea)}. Administración = contratos, facturación, cobranza, pagos, legal, RH, prospectos. "
                           "Operaciones = proyectos, requerimientos, incidencias, reuniones, entregables.\nDe: %s\nAsunto: %s\nCuerpo:\n%s" % (msg.get("from"), msg.get("subject"), (msg.get("body") or "")[:3000]), json_mode=True, max_tokens=300)

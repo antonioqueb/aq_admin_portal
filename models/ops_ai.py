@@ -18,6 +18,7 @@ SYSTEM = ("Eres el copiloto operativo de Alphaqueb Consulting (consultora Odoo, 
 class OpsAI(models.AbstractModel):
     _name = "aq.ops.ai"
     _description = "Alphaops: copiloto IA (DeepSeek)"
+    SYSTEM_DEFAULT = SYSTEM
 
     @api.model
     def _integration(self):
@@ -145,10 +146,13 @@ class OpsAI(models.AbstractModel):
         text = meeting.transcript or meeting.minutes or meeting.agenda or ""
         if not text.strip():
             raise UserError(_("La reunión no tiene transcripción, minuta ni agenda."))
-        prompt = ("Resume esta reunión y extrae en JSON: {\"summary\": str, \"agreements\": [{\"name\", \"owner\", \"due_date\", \"kind\": compromiso|acuerdo|tarea|cambio}], "
-                  "\"decisions\": [{\"name\", \"decision\"}], \"questions\": [str], \"risks\": [str]}. Proyecto: %s. Texto:\n%s") % (meeting.project_id.name, re.sub(r"<[^>]+>", " ", text)[:12000])
-        out = self.chat(prompt, json_mode=True, max_tokens=2500, tier="fast")
-        data = self.parse_json(out) if out else None
+        clean = re.sub(r"<[^>]+>", " ", text)[:12000]
+        data = self.env["aq.ai.prompt"].sudo().render("meeting_extract", {"proyecto": meeting.project_id.name, "transcripcion": clean, "titulo": meeting.name})
+        if not isinstance(data, dict):
+            prompt = ("Resume esta reunión y extrae en JSON: {\"summary\": str, \"agreements\": [{\"name\", \"owner\", \"due_date\", \"kind\": compromiso|acuerdo|tarea|cambio}], "
+                      "\"decisions\": [{\"name\", \"decision\"}], \"questions\": [str], \"risks\": [str]}. Proyecto: %s. Texto:\n%s") % (meeting.project_id.name, clean)
+            out = self.chat(prompt, json_mode=True, max_tokens=2500, tier="fast")
+            data = self.parse_json(out) if out else None
         if data is None:
             data = self._heuristic_meeting(text) if out is None else {"summary": out, "agreements": [], "decisions": [], "questions": [], "risks": []}
         meeting.write({"ai_summary": data.get("summary"), "ai_proposals_json": json.dumps(data, ensure_ascii=False)})
@@ -177,8 +181,8 @@ class OpsAI(models.AbstractModel):
                  "bloqueados": p.blocked_items, "en_validacion": p.in_validation, "riesgos": p.open_risks, "decisiones_pendientes": p.pending_decisions,
                  "esperando_cliente": p.client_dependent, "dias_sin_actividad": p.days_without_activity, "siguiente_accion": p.next_action, "fecha": str(p.next_action_date),
                  "restriccion_comercial": p.commercial_restriction, "hitos_desviados": [(m.name, m.deviation_days) for m in p.milestone_ids if m.deviation_days > 0]}
-        prompt = "Explica en 5 líneas por qué el proyecto está en %s y recomienda la siguiente acción concreta. Datos: %s" % (p.health, json.dumps(facts, ensure_ascii=False, default=str))
-        out = self.chat(prompt)
+        out = self.env["aq.ai.prompt"].sudo().render("project_health", {"proyecto": p.name, "salud": p.health, "datos": facts},
+                                                     fallback_template="Explica en 5 líneas por qué el proyecto está en %s y recomienda la siguiente acción concreta. Datos: %s" % (p.health, json.dumps(facts, ensure_ascii=False, default=str)))
         if out is None:
             reasons = []
             if p.blocked_items: reasons.append("%d elementos bloqueados" % p.blocked_items)
@@ -194,7 +198,8 @@ class OpsAI(models.AbstractModel):
     @api.model
     def draft_report(self, project):
         rep = self.env["aq.ops.status.report"].generate(project)
-        out = self.chat("Redacta un reporte de estado ejecutivo (máx. 200 palabras, HTML simple) para el cliente a partir de: %s" % re.sub(r"<[^>]+>", " ", rep.summary)[:6000], tier="deep", max_tokens=1200)
+        out = self.env["aq.ai.prompt"].sudo().render("status_report", {"texto": re.sub(r"<[^>]+>", " ", rep.summary)[:6000]},
+                                                     fallback_template="Redacta un reporte de estado ejecutivo (máx. 200 palabras) para el cliente a partir de: %s" % re.sub(r"<[^>]+>", " ", rep.summary)[:6000], tier="deep")
         if out:
             rep.write({"summary": out + "<hr/>" + rep.summary, "generated_by_ai": True})
         return rep
@@ -202,6 +207,9 @@ class OpsAI(models.AbstractModel):
     @api.model
     def compare_scope(self, request):
         scope = request.project_id.scope_current or ""
+        lib = self.env["aq.ai.prompt"].sudo().render("scope_compare", {"alcance": scope[:6000], "solicitud": request.name, "detalle": request.description or ""})
+        if isinstance(lib, dict):
+            return lib
         out = self.chat("Alcance vigente:\n%s\n\nNueva solicitud: %s\n%s\n\n¿Está incluida? Responde JSON {\"in_scope\": true|false|null, \"reason\": str, \"classification\": pregunta|solicitud_operativa|defecto|incidente|requerimiento|cambio_alcance|mejora|deuda_tecnica|capacitacion|acceso_configuracion|administrativo}" % (scope[:6000], request.name, request.description or ""), json_mode=True)
         if out is None:
             toks = set(re.findall(r"[a-záéíóúñ]{5,}", (request.name + " " + (request.description or "")).lower()))
@@ -211,8 +219,11 @@ class OpsAI(models.AbstractModel):
 
     @api.model
     def suggest_tests(self, item):
-        out = self.chat(tier="deep", prompt="Propón 5 casos de prueba (JSON {\"cases\": [{\"name\", \"steps\", \"expected\"}]}) para: %s. Criterios: %s" % (item.name, item.acceptance_criteria or item.description or ""), json_mode=True)
-        cases = (self.parse_json(out) or {}).get("cases", []) if out else []
+        lib = self.env["aq.ai.prompt"].sudo().render("test_cases", {"elemento": item.name, "criterios": item.acceptance_criteria or item.description or ""})
+        cases = (lib or {}).get("cases", []) if isinstance(lib, dict) else []
+        if not cases:
+            out = self.chat(tier="deep", prompt="Propón 5 casos de prueba (JSON {\"cases\": [{\"name\", \"steps\", \"expected\"}]}) para: %s. Criterios: %s" % (item.name, item.acceptance_criteria or item.description or ""), json_mode=True)
+            cases = (self.parse_json(out) or {}).get("cases", []) if out else []
         if not cases:
             cases = [{"name": "Flujo principal: %s" % item.name, "steps": "Ejecutar el flujo descrito en los criterios", "expected": item.acceptance_criteria or "Cumple criterios"},
                      {"name": "Validación de datos obligatorios", "steps": "Omitir campos requeridos", "expected": "El sistema impide continuar"},
@@ -225,7 +236,8 @@ class OpsAI(models.AbstractModel):
     def summarize_incident(self, incident):
         log = "\n".join("%s: %s" % (c.create_date, c.body) for c in incident.comment_ids)
         text = "Incidente %s (%s). Reporte: %s. Contención: %s. Diagnóstico: %s. Corrección: %s. Bitácora:\n%s" % (incident.name, incident.severity, incident.description, incident.containment, incident.diagnosis, incident.correction, log)
-        out = self.chat("Resume el historial de este incidente en 6 líneas y sugiere acción preventiva: %s" % text[:8000])
+        out = self.env["aq.ai.prompt"].sudo().render("incident_summary", {"texto": text[:8000]},
+                                                     fallback_template="Resume el historial de este incidente en 6 líneas y sugiere acción preventiva: %s" % text[:8000])
         return out or ("Incidente %s en paso '%s'. %s" % (incident.name, incident.step, (incident.diagnosis or incident.description or "")[:300]))
 
     @api.model
@@ -233,7 +245,8 @@ class OpsAI(models.AbstractModel):
         items = project.item_ids.filtered(lambda i: i.state not in ("cerrado", "cancelado", "aceptado", "liberado", "verificado")).sorted(lambda i: (i.state != "bloqueado", i.priority != "2", i.date_due or fields.Date.today()))
         cand = items[:1]
         sug = "Desbloquear '%s'" % cand.name if cand and cand.state == "bloqueado" else "Avanzar '%s' (%s)" % (cand.name, cand.assignee_id.name or "sin responsable") if cand else "Definir primer hito"
-        out = self.chat("Proyecto %s: elementos abiertos: %s. Recomienda UNA siguiente acción concreta con responsable sugerido (una línea)." % (project.name, "; ".join("%s[%s]" % (i.name, i.state) for i in items[:15])))
+        out = self.env["aq.ai.prompt"].sudo().render("next_action", {"proyecto": project.name, "elementos": "; ".join("%s[%s]" % (i.name, i.state) for i in items[:15])},
+                                                     fallback_template="Proyecto %s: elementos abiertos: %s. Recomienda UNA siguiente acción concreta con responsable sugerido (una línea)." % (project.name, "; ".join("%s[%s]" % (i.name, i.state) for i in items[:15])))
         return out or sug
 
     @api.model
@@ -290,7 +303,11 @@ class OpsAI(models.AbstractModel):
         extra += ("\nTexto base:\n%s" % text) if text else ""
         extra += ("\nInstrucciones adicionales: %s" % instructions) if instructions else ""
         prompt = "Registro (%s):\n%s\n\nTarea: %s%s" % (record._description, json.dumps(facts, ensure_ascii=False)[:9000], task_text, extra)
-        out = self.chat(prompt, max_tokens=1200, tier="deep" if task in ("criteria", "risks") else "fast")
+        out = self.env["aq.ai.prompt"].sudo().render("assist_%s" % task, {"registro": facts, "tipo": record._description, "campo": field or "", "texto": text or "", "instrucciones": instructions or ""})
+        if isinstance(out, dict):
+            out = json.dumps(out, ensure_ascii=False)
+        if not out:
+            out = self.chat(prompt, max_tokens=1200, tier="deep" if task in ("criteria", "risks") else "fast")
         if out is None:
             out = self._assist_heuristic(record, task, facts)
         return out
@@ -320,7 +337,8 @@ class OpsAI(models.AbstractModel):
 
     @api.model
     def digest_summary(self, lines):
-        out = self.chat("Resume en 4 líneas ejecutivas, priorizando lo crítico, estas alertas/notificaciones:\n" + "\n".join(lines[:80]), max_tokens=400)
+        out = self.env["aq.ai.prompt"].sudo().render("digest_summary", {"texto": "\n".join(lines[:80])},
+                                                     fallback_template="Resume en 4 líneas ejecutivas, priorizando lo crítico, estas alertas/notificaciones:\n" + "\n".join(lines[:80]))
         return out or ""
 
     # ------------------------------------------------------------------ visión (capturas, diagramas, PDFs escaneados, evidencia)
@@ -337,6 +355,5 @@ class OpsAI(models.AbstractModel):
                 break
         if not images:
             return _("No hay imágenes interpretables (solo se procesan imágenes; convierta los PDF escaneados a imagen).")
-        out = self.chat((question or "Describe e interpreta cada imagen para el equipo de proyecto: qué muestra, textos visibles, errores en pantalla, "
-                         "elementos de diagramas y cualquier dato relevante. Responde en español, por archivo: %s") % ", ".join(names), images=images, max_tokens=1500)
+        out = self.env["aq.ai.prompt"].sudo().render("vision_describe", {"instrucciones": (question or "Interpreta las imágenes adjuntas.") + " Archivos: " + ", ".join(names)}, images=images)
         return out or _("Visión no disponible (configure DeepSeek).")

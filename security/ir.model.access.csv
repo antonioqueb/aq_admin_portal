@@ -119,3 +119,4 @@ access_model_aq_google_account_manager,aq.google.account manager,aq_admin_portal
 access_model_aq_google_rule_manager,aq.google.rule manager,aq_admin_portal.model_aq_google_rule,aq_admin_portal.group_aq_portal_manager,1,1,1,1
 access_model_aq_google_message_manager,aq.google.message manager,aq_admin_portal.model_aq_google_message,aq_admin_portal.group_aq_portal_manager,1,1,1,1
 access_model_aq_ops_session_type_manager,aq.ops.session.type manager,aq_admin_portal.model_aq_ops_session_type,aq_admin_portal.group_aq_portal_manager,1,1,1,1
+access_model_aq_ai_prompt_manager,aq.ai.prompt manager,aq_admin_portal.model_aq_ai_prompt,aq_admin_portal.group_aq_portal_manager,1,1,1,1
