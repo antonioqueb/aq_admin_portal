@@ -31,10 +31,18 @@ class OpsMeeting(models.Model):
     change_ids = fields.One2many("aq.ops.change", "meeting_id", string="Solicitudes de cambio")
     document_ids = fields.Many2many("aq.ops.document", string="Documentos vinculados")
     next_meeting_date = fields.Datetime(string="Próxima reunión")
+    agreement_count = fields.Integer(compute="_compute_agreement_count", string="Acuerdos")
+    open_agreement_count = fields.Integer(compute="_compute_agreement_count", string="Acuerdos abiertos")
     state = fields.Selection([("programada", "Programada"), ("realizada", "Realizada"), ("minuta_enviada", "Minuta enviada")], default="programada", tracking=True)
     client_visible = fields.Boolean(default=True)
     ai_summary = fields.Text(string="Resumen del copiloto (borrador)", readonly=True)
     ai_proposals_json = fields.Text(string="Propuestas del copiloto (JSON)", readonly=True)
+
+    @api.depends("agreement_ids", "agreement_ids.confirmed")
+    def _compute_agreement_count(self):
+        for m in self:
+            m.agreement_count = len(m.agreement_ids)
+            m.open_agreement_count = len(m.agreement_ids.filtered(lambda a: not a.confirmed))
 
     def action_send_minutes(self):
         Brand = self.env["aq.portal.branding"]

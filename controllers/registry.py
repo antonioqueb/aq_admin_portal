@@ -133,12 +133,12 @@ RESOURCES = {
     "clients": {
         "model": "res.partner", "label": "Clientes (directorio)", "singular": "Cliente", "section": "prioritarias", "icon": "building", "order": 75,
         "domain": [("is_company", "=", True)], "defaults": {"is_company": True},
-        "only_fields": ["name", "vat", "email", "phone", "mobile", "website", "street", "street2", "city", "state_id", "zip", "country_id",
+        "only_fields": ["name", "vat", "email", "phone", "website", "street", "street2", "city", "state_id", "zip", "country_id",
                         "is_company", "parent_id", "child_ids", "function", "comment", "active"],
         "list": ["name", "vat", "email", "phone", "city", "country_id"],
         "filters": ["country_id"],
         "groups": [
-            {"title": "Razón social y datos fiscales", "fields": ["name", "vat", "email", "phone", "mobile", "website"]},
+            {"title": "Razón social y datos fiscales", "fields": ["name", "vat", "email", "phone", "website"]},
             {"title": "Domicilio fiscal", "fields": ["street", "street2", "city", "state_id", "zip", "country_id"]},
             {"title": "Notas", "fields": ["comment"]},
         ],
@@ -147,9 +147,9 @@ RESOURCES = {
     },
     "contacts": {
         "model": "res.partner", "label": "Contactos", "singular": "Contacto", "section": None,
-        "only_fields": ["name", "function", "email", "phone", "mobile", "parent_id", "comment", "active"],
-        "list": ["name", "function", "email", "phone", "mobile"],
-        "groups": [{"title": "Contacto", "fields": ["name", "function", "email", "phone", "mobile", "comment"]}],
+        "only_fields": ["name", "function", "email", "phone", "parent_id", "comment", "active"],
+        "list": ["name", "function", "email", "phone"],
+        "groups": [{"title": "Contacto", "fields": ["name", "function", "email", "phone", "comment"]}],
         "roles": {"read": ROLE_ALL, "write": ROLE_WRITE, "create": ROLE_WRITE, "delete": []},
     },
     # ------------------------------------------------------------------ 1.3
