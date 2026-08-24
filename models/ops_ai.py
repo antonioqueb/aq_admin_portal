@@ -33,7 +33,7 @@ class OpsAI(models.AbstractModel):
         icp = self.env["ir.config_parameter"].sudo()
         key = (os.environ.get("DEEPSEEK_API_KEY") or icp.get_param("aq_ops.deepseek_api_key") or icp.get_param("DEEPSEEK_API_KEY") or (i.api_key if i else "") or "").strip()
         enabled = bool(key) and (not i or i.enabled or bool(os.environ.get("DEEPSEEK_API_KEY")))
-        default = os.environ.get("DEEPSEEK_MODEL") or icp.get_param("aq_ops.deepseek_model_auto") or (i.model if i else "") or "deepseek-chat"
+        default = os.environ.get("DEEPSEEK_MODEL") or icp.get_param("aq_ops.deepseek_model_auto") or (i.model if i else "") or "deepseek-v4-flash"
         models = {  # niveles de uso definidos por Dirección
             "fast": os.environ.get("DEEPSEEK_MODEL_FAST") or icp.get_param("aq_ops.deepseek_model_fast") or "deepseek-v4-flash",
             "deep": os.environ.get("DEEPSEEK_MODEL_DEEP") or icp.get_param("aq_ops.deepseek_model_deep") or "deepseek-v4-pro",
@@ -65,9 +65,9 @@ class OpsAI(models.AbstractModel):
         def score(mid):
             nums = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", mid)]
             return (max(nums) if nums else 0.0, 1 if ("reasoner" in mid) == prefer_reasoning else 0, mid)
-        # Los alias 'deepseek-chat' / 'deepseek-reasoner' apuntan siempre a la última versión publicada por DeepSeek.
+        # Nota: los alias 'deepseek-chat' / 'deepseek-reasoner' fueron descontinuados por DeepSeek (2026-07-24).
         versioned = [m for m in models_ if re.search(r"\d", m)]
-        chosen = max(versioned, key=score) if versioned else ("deepseek-reasoner" if prefer_reasoning and "deepseek-reasoner" in models_ else "deepseek-chat" if "deepseek-chat" in models_ else models_[0])
+        chosen = max(versioned, key=score) if versioned else ("deepseek-v4-pro" if prefer_reasoning and "deepseek-v4-pro" in models_ else "deepseek-v4-flash" if "deepseek-v4-flash" in models_ else models_[0])
         icp.set_param("aq_ops.deepseek_model_auto", chosen)
         i = self._integration()
         if i:
@@ -85,10 +85,19 @@ class OpsAI(models.AbstractModel):
 
     @api.model
     def test_connection(self):
-        """Prueba real contra DeepSeek; devuelve el texto o el error."""
+        """Prueba real contra DeepSeek; señala la causa exacta cuando falla."""
+        c = self._config()
+        if not c["key"]:
+            return {"ok": False, "error": _("No hay clave de API. Defina la variable de entorno DEEPSEEK_API_KEY en el servidor, "
+                                            "o el parámetro del sistema aq_ops.deepseek_api_key, o cargue la clave en la ficha de integración."), "status": self.status()}
+        if not c["enabled"]:
+            return {"ok": False, "error": _("Hay clave, pero la integración DeepSeek está deshabilitada: active la casilla 'Habilitada' en la ficha de integración."), "status": self.status()}
         try:
-            out = self.chat("Responde únicamente: OK", max_tokens=5)
-            return {"ok": bool(out), "answer": out, "status": self.status()}
+            out = self.chat("Responde únicamente con la palabra: OK", max_tokens=120)
+            if not (out or "").strip():
+                return {"ok": False, "error": _("El modelo '%s' respondió vacío. Revise que el modelo exista en su cuenta "
+                                                "(botón 'Elegir modelo más reciente') o ajuste aq_ops.deepseek_model_fast.") % c["models"].get("fast"), "status": self.status()}
+            return {"ok": True, "answer": out.strip()[:200], "status": self.status()}
         except Exception as e:  # noqa
             return {"ok": False, "error": str(e), "status": self.status()}
 
@@ -146,14 +155,25 @@ class OpsAI(models.AbstractModel):
                 r.raise_for_status()
                 if c["record"]:
                     c["record"].write({"last_used": fields.Datetime.now()})
-                return r.json()["choices"][0]["message"]["content"]
+                msg = r.json()["choices"][0]["message"]
+                content = msg.get("content") or ""
+                if not content.strip() and msg.get("reasoning_content"):
+                    # el modelo agotó los tokens en razonamiento: se rescata el razonamiento antes que devolver vacío
+                    content = msg["reasoning_content"]
+                return content
             except requests.RequestException as e:
                 last_err = e
-                status = getattr(getattr(e, "response", None), "status_code", None)
-                if attempt == 1 and (status is None or status in (429, 500, 502, 503, 504)):
-                    import time
-                    time.sleep(2)
-                    continue
+                resp = getattr(e, "response", None)
+                status = getattr(resp, "status_code", None)
+                if attempt == 1:
+                    if status == 400 and "model" in (getattr(resp, "text", "") or "").lower() and body["model"] != "deepseek-v4-flash":
+                        _logger.warning("Modelo '%s' no disponible en DeepSeek; se reintenta con deepseek-v4-flash", body["model"])
+                        body["model"] = "deepseek-v4-flash"
+                        continue
+                    if status is None or status in (429, 500, 502, 503, 504):
+                        import time
+                        time.sleep(2)
+                        continue
                 break
         _logger.warning("DeepSeek no disponible: %s", last_err)
         raise UserError(_("El copiloto (DeepSeek) no respondió: %s") % last_err)
