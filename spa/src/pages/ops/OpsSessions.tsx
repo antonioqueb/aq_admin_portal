@@ -61,13 +61,13 @@ export default function OpsSessions() {
       {grouped.map(([k, rows]) => (
         <div className="card" key={k}>
           <h2>{k} <span className="badge">{rows.length}</span></h2>
-          <div className="table-wrap"><table className="list"><thead><tr><th>#</th><th>Sesión</th><th>Fecha</th><th>Tipo</th><th>Estado</th><th>IA</th><th>Acuerdos</th><th>Enlaces</th>{!external && <th></th>}</tr></thead>
+          <div className="table-wrap"><table className="list"><thead><tr><th>#</th><th>Sesión</th><th>Fecha</th><th>Tipo</th><th>Estado</th><th>IA</th><th>Seguimiento</th><th>Enlaces</th>{!external && <th></th>}</tr></thead>
             <tbody>{rows.map((s: any) => <tr key={s.id} className="row">
               <td>{s.folio || '—'}</td>
               <td><Link to={`/ops/r/meetings/${s.id}`}>{s.name}</Link>{s.imported && <span className="badge" style={{ marginLeft: 4 }}>histórico</span>}</td>
               <td>{fmtDate(s.date)}</td><td>{s.type}</td><td><span className={'badge ' + (s.state === 'realizada' || s.state === 'minuta_enviada' ? 'ok' : '')}>{s.state}</span></td>
               <td>{s.processed ? <span className="badge ok">procesada</span> : s.has_transcript ? <span className="badge warn">con transcripción</span> : <span className="badge">sin transcripción</span>}</td>
-              <td>{s.agreements || 0}</td>
+              <td>{s.followups ? <span className="badge ok" title={s.followups_log || ''}>{s.followups} elementos</span> : (s.agreements ? `${s.agreements} acuerdos` : '—')}</td>
               <td>{s.meet && <a href={s.meet} target="_blank" rel="noreferrer">Meet</a>} {s.doc && <a href={s.doc} target="_blank" rel="noreferrer" style={{ marginLeft: 6 }}>Doc</a>}</td>
               {!external && <td>{!s.processed && s.has_transcript && <button className="btn secondary small" onClick={() => processAi(s.id)}>Procesar IA</button>}</td>}
             </tr>)}</tbody></table></div>

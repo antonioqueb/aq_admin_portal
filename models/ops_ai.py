@@ -158,9 +158,11 @@ class OpsAI(models.AbstractModel):
         meeting.write({"ai_summary": data.get("summary"), "ai_proposals_json": json.dumps(data, ensure_ascii=False)})
         Agreement = self.env["aq.ops.meeting.agreement"]
         for a in data.get("agreements", []):
-            if a.get("name") and not Agreement.search_count([("meeting_id", "=", meeting.id), ("name", "=", a["name"])]):
-                owner = self.env["aq.portal.member"].search([("name", "ilike", a.get("owner") or "___")], limit=1)
-                Agreement.create({"meeting_id": meeting.id, "name": a["name"], "owner_id": owner.id, "due_date": a.get("due_date") if re.match(r"\d{4}-\d{2}-\d{2}", str(a.get("due_date") or "")) else False,
+            if a.get("name") and not Agreement.search_count([("meeting_id", "=", meeting.id), ("name", "=ilike", a["name"][:120])]):
+                owner = meeting._find_member(a.get("owner"))
+                contacto = meeting._find_client_contact(a.get("owner")) if not owner else self.env["res.partner"]
+                Agreement.create({"meeting_id": meeting.id, "name": a["name"][:200], "owner_id": owner.id, "owner_partner_id": contacto.id,
+                                  "due_date": meeting._parse_due(a.get("due_date")),
                                   "kind": a.get("kind") if a.get("kind") in ("compromiso", "acuerdo", "tarea", "cambio") else "compromiso", "proposed_by_ai": True})
         for q in data.get("questions", []):
             self.env["aq.ops.meeting.question"].create({"meeting_id": meeting.id, "name": q[:200]})

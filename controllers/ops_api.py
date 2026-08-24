@@ -597,7 +597,8 @@ class OpsApi(http.Controller):
         for m in rows:
             out.append({"id": m.id, "folio": m.folio or None, "name": m.name, "project": m.project_id.name, "project_id": m.project_id.id, "date": str(m.date or ""),
                         "type": m.session_type_id.name or dict(m._fields["meeting_type"].selection).get(m.meeting_type), "state": m.state, "processed": m.processed,
-                        "has_transcript": bool(m.transcript), "doc": m.summary_doc_url or m.google_doc_url, "meet": m.location, "imported": m.imported, "agreements": m.agreement_count})
+                        "has_transcript": bool(m.transcript), "doc": m.summary_doc_url or m.google_doc_url, "meet": m.location, "imported": m.imported,
+                        "agreements": m.agreement_count, "followups": m.followups_count, "followups_log": m.followups_log})
             pr = projects.setdefault(m.project_id.id, {"project": m.project_id.name, "prefix": m.project_id.session_prefix, "seq": m.project_id.session_seq, "po": m.project_id.session_po,
                                                        "total": 0, "processed": 0, "pending_transcript": 0})
             pr["total"] += 1

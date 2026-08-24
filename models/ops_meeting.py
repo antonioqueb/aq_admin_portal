@@ -70,13 +70,39 @@ class OpsMeetingAgreement(models.Model):
     is_contractual = fields.Boolean(string="¿Implica compromiso contractual?", help="Una solicitud mencionada en reunión no es compromiso contractual hasta pasar por control de cambios.")
 
     def action_confirm(self):
+        """Convierte el acuerdo en actividad con todo lo necesario para darle seguimiento."""
         for a in self:
+            meeting = a.meeting_id
+            project = meeting.project_id
             a.confirmed = True
-            if a.kind in ("tarea", "compromiso") and not a.item_id:
-                a.item_id = self.env["aq.ops.item"].create({"name": a.name, "item_type": "tarea", "project_id": a.meeting_id.project_id.id, "meeting_id": a.meeting_id.id,
-                                                            "assignee_id": a.owner_id.id, "date_due": a.due_date, "state": "por_hacer", "waiting_client": bool(a.owner_partner_id and not a.owner_id)})
-            if a.kind == "cambio" and not a.change_id:
-                a.change_id = self.env["aq.ops.change"].create({"name": a.name, "project_id": a.meeting_id.project_id.id, "meeting_id": a.meeting_id.id, "requested_by": a.owner_partner_id.name or "Reunión"})
+            if a.kind in ("tarea", "compromiso") and not a.item_id and project:
+                waiting = bool(a.owner_partner_id and not a.owner_id)
+                due = a.due_date or fields.Date.add(fields.Date.context_today(a), days=7)
+                urgente = (due - fields.Date.context_today(a)).days <= 3
+                desc = ("<p>%s</p><p style='color:#888;font-size:11px'>Acuerdo registrado en la sesión <b>%s</b> del %s"
+                        "%s. Origen: acta de sesión.</p>") % (a.name, meeting.name, meeting.date and meeting.date.strftime("%d/%m/%Y") or "",
+                                                              (" · responsable declarado: %s" % (a.owner_id.name or a.owner_partner_id.name)) if (a.owner_id or a.owner_partner_id) else "")
+                a.item_id = self.env["aq.ops.item"].create({
+                    "name": a.name[:200], "item_type": "tarea", "project_id": project.id, "meeting_id": meeting.id,
+                    "assignee_id": a.owner_id.id or (project.pm_id.id if not waiting else False),
+                    "validator_partner_id": a.owner_partner_id.id if waiting else False,
+                    "date_due": due, "date_start": fields.Date.context_today(a), "state": "por_hacer",
+                    "waiting_client": waiting, "client_visible": bool(waiting or meeting.client_visible),
+                    "priority": "1" if urgente else "0", "description": desc,
+                    "acceptance_criteria": _("Evidencia: %s") % (a.name if not waiting else _("confirmación del cliente")),
+                    "estimate_hours": 1.0, "remaining_hours": 1.0, "tags": "sesion,acuerdo"})
+                if a.owner_id:
+                    self.env["aq.ops.notification"].sudo().notify_member(a.owner_id, "accion_requerida",
+                                                                        _("Nuevo compromiso de la sesión %s: %s (vence %s)") % (meeting.name, a.name, due), "items", a.item_id.id)
+                elif waiting:
+                    self.env["aq.ops.notification"].sudo().notify_role(project, ["pm"], "recordatorio",
+                                                                       _("Pendiente a cargo del cliente: %s") % a.name, "items", a.item_id.id)
+            if a.kind == "cambio" and not a.change_id and project:
+                a.change_id = self.env["aq.ops.change"].create({"name": a.name[:200], "project_id": project.id, "meeting_id": meeting.id,
+                                                                "requested_by": a.owner_partner_id.name or _("Solicitado en sesión"),
+                                                                "description": _("Solicitud registrada en la sesión %s.") % meeting.name})
+                self.env["aq.ops.notification"].sudo().notify_role(project, ["pm"], "accion_requerida",
+                                                                   _("Posible cambio de alcance detectado en sesión: %s") % a.name, "changes", a.change_id.id)
         return True
 
 

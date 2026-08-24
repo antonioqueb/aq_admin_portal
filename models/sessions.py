@@ -81,6 +81,8 @@ class OpsMeetingSession(models.Model):
     summary_doc_url = fields.Char(string="Resumen en Google Docs", readonly=True)
     summary_sent = fields.Boolean(readonly=True, string="Resumen enviado por correo")
     imported = fields.Boolean(string="Importada del histórico", readonly=True)
+    followups_log = fields.Text(string="Seguimiento generado", readonly=True)
+    followups_count = fields.Integer(string="Elementos de seguimiento", readonly=True)
 
     # ------------------------------------------------------------------ generador
     @api.model
@@ -188,13 +190,34 @@ class OpsMeetingSession(models.Model):
                                       "pendientes_cliente": [], "riesgos": data.get("risks", []), "siguientes_pasos": [], "proxima_sesion": ""}
             html = self._exec_html(m, exec_json)
             m.with_context(aq_skip_activity=True).write({"exec_summary": html, "processed": True, "state": "realizada" if m.state == "programada" else m.state})
-            # actividades automáticas desde acuerdos
-            if auto_items:
-                for a in m.agreement_ids.filtered(lambda x: not x.confirmed and (x.owner_id or x.owner_partner_id or True)):
-                    try:
-                        a.with_context(portal_user_id=self.env.context.get("portal_user_id")).action_confirm()
-                    except Exception as e:  # noqa
-                        _logger.info("Acuerdo %s: %s", a.name, e)
+            # ---- seguimiento: acuerdos → actividades, decisiones, riesgos, preguntas y siguiente acción
+            resumen_seg = {}
+            if m.project_id:
+                try:
+                    m._merge_agreements(exec_json)
+                    if auto_items:
+                        for a in m.agreement_ids.filtered(lambda x: not x.confirmed):
+                            try:
+                                a.with_context(portal_user_id=self.env.context.get("portal_user_id")).action_confirm()
+                            except Exception as e:  # noqa
+                                _logger.info("Acuerdo %s: %s", a.name, e)
+                    resumen_seg = m._create_followups(exec_json) or {}
+                    tareas = len(m.agreement_ids.filtered(lambda x: x.item_id))
+                    cambios = len(m.agreement_ids.filtered(lambda x: x.change_id))
+                    resumen_seg.update(tareas=tareas, cambios=cambios)
+                    partes = []
+                    if tareas: partes.append(_("%d actividades") % tareas)
+                    if cambios: partes.append(_("%d solicitudes de cambio") % cambios)
+                    if resumen_seg.get("decisiones"): partes.append(_("%d decisiones") % resumen_seg["decisiones"])
+                    if resumen_seg.get("riesgos"): partes.append(_("%d riesgos") % resumen_seg["riesgos"])
+                    if resumen_seg.get("preguntas"): partes.append(_("%d preguntas abiertas") % resumen_seg["preguntas"])
+                    log = _("Seguimiento generado: %s.") % ", ".join(partes) if partes else _("No se detectaron compromisos en esta sesión.")
+                    if resumen_seg.get("siguiente_accion"):
+                        log += _(" Siguiente acción del proyecto actualizada: %s") % resumen_seg["siguiente_accion"]
+                    m.with_context(aq_skip_activity=True).write({"followups_log": log, "followups_count": tareas + cambios + resumen_seg.get("decisiones", 0) + resumen_seg.get("riesgos", 0) + resumen_seg.get("preguntas", 0)})
+                except Exception as e:  # noqa
+                    _logger.exception("Seguimiento de sesión %s", m.name)
+                    m.with_context(aq_skip_activity=True).write({"followups_log": _("Error al generar el seguimiento: %s") % e})
             # Google Doc con la plantilla
             try:
                 m._create_summary_doc(exec_json)
@@ -205,7 +228,8 @@ class OpsMeetingSession(models.Model):
                 m._send_summary_email(html)
             except Exception as e:  # noqa
                 _logger.warning("Correo de resumen: %s", e)
-            self.env["aq.ops.notification"].sudo().notify_role(m.project_id, ["pm"], "resumen", _("Resumen ejecutivo listo: %s") % m.name, "meetings", m.id)
+            self.env["aq.ops.notification"].sudo().notify_role(m.project_id, ["pm"], "resumen",
+                                                                _("Sesión procesada: %s") % m.name, "meetings", m.id, body=m.followups_log or "")
         return True
 
     @api.model
@@ -238,6 +262,136 @@ class OpsMeetingSession(models.Model):
             pass
         m.project_id = _P(); m.project_id.name = project_name or "(por identificar)"
         return self._exec_html(m, d)
+
+    # ------------------------------------------------------------------ seguimiento automático
+    def _find_member(self, name):
+        if not name or not isinstance(name, str):
+            return self.env["aq.portal.member"]
+        Member = self.env["aq.portal.member"].sudo()
+        n = name.strip()
+        if "@" in n:
+            return Member.search([("email", "=ilike", n)], limit=1)
+        m = Member.search([("name", "=ilike", n)], limit=1) or Member.search([("name", "ilike", n.split()[0])], limit=1)
+        return m
+
+    def _find_client_contact(self, name):
+        self.ensure_one()
+        if not name or not isinstance(name, str):
+            return self.env["res.partner"]
+        n = name.strip()
+        pool = self.client_partner_ids | self.project_id.client_contact_ids
+        for p in pool:
+            if p.name and (p.name.lower() == n.lower() or n.lower() in p.name.lower() or (p.email and p.email.lower() == n.lower())):
+                return p
+        return self.env["res.partner"]
+
+    def _parse_due(self, value):
+        if not value or not isinstance(value, str):
+            return False
+        v = value.strip().lower()
+        base = fields.Date.context_today(self)
+        m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", v)
+        if m:
+            try:
+                return fields.Date.to_date(m.group(0))
+            except Exception:
+                return False
+        m = re.match(r"^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?$", v)
+        if m:
+            d, mo = int(m.group(1)), int(m.group(2))
+            y = int(m.group(3) or base.year)
+            y = y + 2000 if y < 100 else y
+            try:
+                return fields.Date.to_date("%04d-%02d-%02d" % (y, mo, d))
+            except Exception:
+                return False
+        dias = {"lunes": 0, "martes": 1, "miércoles": 2, "miercoles": 2, "jueves": 3, "viernes": 4, "sábado": 5, "sabado": 5, "domingo": 6}
+        for k, wd in dias.items():
+            if k in v:
+                delta = (wd - base.weekday()) % 7 or 7
+                return fields.Date.add(base, days=delta)
+        if "hoy" in v:
+            return base
+        if "mañana" in v or "manana" in v:
+            return fields.Date.add(base, days=1)
+        if "semana" in v:
+            return fields.Date.add(base, days=7)
+        return False
+
+    def _merge_agreements(self, d):
+        """Lleva los acuerdos y pendientes del resumen ejecutivo a la capa confirmable (sin duplicar)."""
+        self.ensure_one()
+        Agreement = self.env["aq.ops.meeting.agreement"].sudo()
+        existentes = {(a.name or "").strip().lower() for a in self.agreement_ids}
+        nuevos = 0
+        for a in (d.get("acuerdos") or []):
+            nombre = (a.get("acuerdo") if isinstance(a, dict) else str(a) or "").strip()
+            if not nombre or nombre.lower() in existentes:
+                continue
+            resp = a.get("responsable") if isinstance(a, dict) else ""
+            member = self._find_member(resp)
+            contacto = self._find_client_contact(resp) if not member else self.env["res.partner"]
+            Agreement.create({"meeting_id": self.id, "name": nombre[:200], "owner_id": member.id, "owner_partner_id": contacto.id,
+                              "due_date": self._parse_due(a.get("fecha") if isinstance(a, dict) else ""),
+                              "kind": "compromiso", "proposed_by_ai": True})
+            existentes.add(nombre.lower()); nuevos += 1
+        for p in (d.get("pendientes_cliente") or []):
+            nombre = (p if isinstance(p, str) else str(p)).strip()
+            if not nombre or nombre.lower() in existentes:
+                continue
+            Agreement.create({"meeting_id": self.id, "name": nombre[:200], "owner_partner_id": (self.client_partner_ids[:1] or self.project_id.client_contact_ids[:1]).id or False,
+                              "kind": "compromiso", "proposed_by_ai": True})
+            existentes.add(nombre.lower()); nuevos += 1
+        return nuevos
+
+    def _create_followups(self, d):
+        """Crea todo lo necesario para dar seguimiento después de la sesión: decisiones, riesgos, preguntas
+        abiertas y la siguiente acción del proyecto (las tareas nacen de los acuerdos confirmados)."""
+        self.ensure_one()
+        project = self.project_id
+        if not project:
+            return {}
+        Decision = self.env["aq.ops.decision"].sudo()
+        Raid = self.env["aq.ops.raid"].sudo()
+        Question = self.env["aq.ops.meeting.question"].sudo()
+        hoy = fields.Date.context_today(self)
+        res = {"decisiones": 0, "riesgos": 0, "preguntas": 0, "siguiente_accion": False}
+        for dec in (d.get("decisiones") or []):
+            texto = (dec if isinstance(dec, str) else self._fmt_item(dec)).strip()
+            if not texto or Decision.search_count([("meeting_id", "=", self.id), ("name", "=ilike", texto[:120])]):
+                continue
+            Decision.create({"name": texto[:120], "project_id": project.id, "meeting_id": self.id, "decision_text": texto,
+                             "context_text": _("Registrada en la sesión %s.") % self.name, "date": (self.date or fields.Datetime.now()).date(),
+                             "decided_by_id": project.pm_id.id, "state": "propuesta", "client_visible": self.client_visible})
+            res["decisiones"] += 1
+        for r in (d.get("riesgos") or []):
+            texto = (r if isinstance(r, str) else self._fmt_item(r)).strip()
+            if not texto or Raid.search_count([("project_id", "=", project.id), ("name", "=ilike", texto[:120]), ("state", "not in", ("cerrado",))]):
+                continue
+            Raid.create({"name": texto[:120], "raid_type": "risk", "project_id": project.id, "meeting_id": self.id, "description": texto,
+                         "owner_id": project.pm_id.id, "probability": "2", "impact": "2", "state": "abierto",
+                         "next_action": _("Evaluar y definir mitigación"), "next_action_date": fields.Date.add(hoy, days=7),
+                         "due_date": fields.Date.add(hoy, days=7)})
+            res["riesgos"] += 1
+        data_q = (d.get("preguntas") or d.get("preguntas_abiertas") or [])
+        for q in data_q:
+            texto = (q if isinstance(q, str) else self._fmt_item(q)).strip()
+            if not texto or Question.search_count([("meeting_id", "=", self.id), ("name", "=ilike", texto[:120])]):
+                continue
+            Question.create({"meeting_id": self.id, "name": texto[:200], "owner_partner_id": (self.client_partner_ids[:1]).id or False, "client_visible": self.client_visible})
+            res["preguntas"] += 1
+        pasos = [p for p in (d.get("siguientes_pasos") or []) if p]
+        if pasos and (not project.has_next_action or (project.next_action_date and project.next_action_date < hoy)):
+            paso = pasos[0] if isinstance(pasos[0], str) else self._fmt_item(pasos[0])
+            paso = re.sub(r"<[^>]+>", "", paso)[:200]
+            project.with_context(aq_skip_activity=True).write({"next_action": paso, "next_action_owner_id": project.pm_id.id or project.tech_lead_id.id,
+                                                               "next_action_date": fields.Date.add(hoy, days=3)})
+            res["siguiente_accion"] = paso
+        if d.get("proxima_sesion") and not self.next_meeting_date:
+            nd = self._parse_due(d["proxima_sesion"])
+            if nd:
+                self.with_context(aq_skip_activity=True).write({"next_meeting_date": fields.Datetime.to_datetime("%s 09:00:00" % nd)})
+        return res
 
     @staticmethod
     def _fmt_item(i):
