@@ -14,7 +14,7 @@ _logger = logging.getLogger(__name__)
 
 class SessionType(models.Model):
     _name = "aq.ops.session.type"
-    _description = "AlphaOps: tipo de sesión"
+    _description = "Alphaops: tipo de sesión"
     _order = "sequence"
 
     name = fields.Char(required=True)
@@ -68,27 +68,59 @@ class OpsMeetingSession(models.Model):
 
     # ------------------------------------------------------------------ generador
     @api.model
-    def generate_session(self, project, stype, start_dt, duration=None, extra_emails=None, agenda=None, user=None):
+    def suggested_invitees(self, project, stype):
+        """Invitados sugeridos (pre-llenado editable): equipo interno, contactos del cliente y grupo de correo."""
+        out = []
+        members = project.team_member_ids | project.pm_id | project.functional_lead_id | project.tech_lead_id
+        for m in members.filtered("email"):
+            out.append({"email": m.email.lower(), "name": m.name, "kind": "interno", "checked": stype.invite_team})
+        for pc in project.client_contact_ids.filtered("email"):
+            out.append({"email": pc.email.lower(), "name": pc.name, "kind": "cliente", "checked": stype.invite_client})
+        if project.group_email:
+            out.append({"email": project.group_email.lower(), "name": _("Grupo del cliente"), "kind": "grupo", "checked": stype.invite_client})
+        seen, dedup = set(), []
+        for i in out:
+            if i["email"] not in seen:
+                seen.add(i["email"]); dedup.append(i)
+        return dedup
+
+    @api.model
+    def share_text(self, title, project, start_dt, meet_link):
+        local = start_dt
+        fecha = local.strftime("%d/%m/%Y")
+        hora = local.strftime("%H:%M")
+        return (u"¡Hola! 👋\n\nDe parte del equipo de Alphaqueb te invitamos a la sesión:\n\n📌 %s\n🏷️ Proyecto: %s\n🗓️ %s · 🕘 %s h (CDMX)\n🔗 Únete por Google Meet: %s\n\n"
+                u"Si hay algún tema que quieras sumar a la agenda, cuéntanos por aquí. ¡Nos vemos!\n— Equipo Alphaqueb") % (title, project.name, fecha, hora, meet_link or "(liga por confirmar)")
+
+    @api.model
+    def generate_session(self, project, stype, start_dt, duration=None, extra_emails=None, agenda=None, user=None, attendees=None, send_invites=True):
         project.ensure_one()
         acc = self.env["aq.google.sync"]._account()
         n, title = project.next_folio(stype.name, start_dt)
-        emails = set(e.strip().lower() for e in (extra_emails or []) if e and "@" in e)
+        if attendees is not None:
+            emails = set(e.strip().lower() for e in attendees if e and "@" in e)
+        else:
+            emails = set()
+            members = project.team_member_ids | project.pm_id | project.functional_lead_id | project.tech_lead_id
+            if stype.invite_team:
+                emails |= {m.email.lower() for m in members if m.email}
+            if stype.invite_client:
+                emails |= {p.email.lower() for p in project.client_contact_ids if p.email}
+                if project.group_email:
+                    emails.add(project.group_email.lower())
+        emails |= set(e.strip().lower() for e in (extra_emails or []) if e and "@" in e)
         members = project.team_member_ids | project.pm_id | project.functional_lead_id | project.tech_lead_id
-        if stype.invite_team:
-            emails |= {m.email.lower() for m in members if m.email}
-        if stype.invite_client:
-            emails |= {p.email.lower() for p in project.client_contact_ids if p.email}
-            if project.group_email:
-                emails.add(project.group_email.lower())
         end_dt = start_dt + timedelta(minutes=duration or stype.duration_minutes or 30)
-        body = {"summary": title, "description": (agenda or stype.agenda_template or "") + "\n\n— Generado por AlphaOps", "start": {"dateTime": start_dt.strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "America/Mexico_City"},
+        body = {"summary": title, "description": (agenda or stype.agenda_template or "") + "\n\n— Generado por Alphaops", "start": {"dateTime": start_dt.strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "America/Mexico_City"},
                 "end": {"dateTime": end_dt.strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "America/Mexico_City"},
                 "attendees": [{"email": e} for e in sorted(emails)], "conferenceData": {"createRequest": {"requestId": "aqops-%s-%s" % (project.id, fields.Datetime.now().strftime("%H%M%S")), "conferenceSolutionKey": {"type": "hangoutsMeet"}}},
                 "guestsCanModify": False, "reminders": {"useDefault": True}}
-        ev = acc._call("POST", "https://www.googleapis.com/calendar/v3/calendars/%s/events" % (acc.calendar_id or "primary"), params={"conferenceDataVersion": 1, "sendUpdates": "all"}, json=body)
+        ev = acc._call("POST", "https://www.googleapis.com/calendar/v3/calendars/%s/events" % (acc.calendar_id or "primary"), params={"conferenceDataVersion": 1, "sendUpdates": "all" if send_invites else "none"}, json=body)
         meet = ev.get("hangoutLink") or next((p.get("uri") for p in (ev.get("conferenceData", {}).get("entryPoints") or []) if p.get("entryPointType") == "video"), "")
+        invited_members = members.filtered(lambda x: x.email and x.email.lower() in emails)
+        invited_clients = project.client_contact_ids.filtered(lambda x: x.email and x.email.lower() in emails)
         m = self.create({"name": title, "project_id": project.id, "date": start_dt, "meeting_type": stype.meeting_type, "session_type_id": stype.id, "folio": n,
-                         "member_ids": [(6, 0, members.ids)] if stype.invite_team else False, "client_partner_ids": [(6, 0, project.client_contact_ids.ids)] if stype.invite_client else False,
+                         "member_ids": [(6, 0, invited_members.ids)], "client_partner_ids": [(6, 0, invited_clients.ids)],
                          "agenda": agenda or stype.agenda_template, "location": meet, "google_event_id": ev.get("id"), "meet_code": (ev.get("conferenceData", {}).get("conferenceId") or ""),
                          "client_visible": stype.client_visible})
         project.with_context(aq_skip_activity=True).write({"session_seq": n})
@@ -135,7 +167,7 @@ class OpsMeetingSession(models.Model):
     def build_exec_summary(self, name, project_name, date, text):
         """Genera el JSON del resumen ejecutivo a partir de una transcripción, sin requerir reunión ni proyecto."""
         AI = self.env["aq.ops.ai"].sudo()
-        out = AI.chat_json("Eres el redactor ejecutivo de AlphaQueb Consulting. Redacta en español profesional, prosa natural (nunca JSON ni Markdown dentro de los textos). "
+        out = AI.chat_json("Eres el redactor ejecutivo de Alphaqueb Consulting. Redacta en español profesional, prosa natural (nunca JSON ni Markdown dentro de los textos). "
                            "Devuelve exclusivamente un objeto JSON con esta forma: "
                            "{\"objetivo\": str, \"resumen\": str (2-3 párrafos narrativos), \"temas\": [{\"titulo\": str, \"detalle\": str (párrafo)}], \"decisiones\": [str], "
                            "\"acuerdos\": [{\"acuerdo\": str, \"responsable\": str, \"fecha\": str}], \"pendientes_cliente\": [str], \"riesgos\": [str], \"siguientes_pasos\": [str], \"proxima_sesion\": str}. "
@@ -164,7 +196,7 @@ class OpsMeetingSession(models.Model):
         Si la plantilla tuviera marcadores {{...}}, se usan; si su cuerpo está vacío (membrete), se inserta el contenido."""
         acc = self.env["aq.google.sync"]._account()
         template = self.env["aq.ops.meeting"]._template_id(acc)
-        copy = acc.post("https://www.googleapis.com/drive/v3/files/%s/copy" % template, {"name": "Resumen Ejecutivo · %s" % title[:110], "parents": [acc.drive_folder_id("AlphaOps")]})
+        copy = acc.post("https://www.googleapis.com/drive/v3/files/%s/copy" % template, {"name": "Resumen Ejecutivo · %s" % title[:110], "parents": [acc.drive_folder_id("Alphaops")]})
         did = copy["id"]
         tpl_text = ""
         try:
@@ -273,10 +305,10 @@ class OpsMeetingSession(models.Model):
             icp.set_param("aq_google.session_template_doc_id", found[0]["id"])
             return found[0]["id"]
         # crea una plantilla base con los marcadores
-        folder = acc.drive_folder_id("AlphaOps")
+        folder = acc.drive_folder_id("Alphaops")
         text = ("{{FOLIO}}\n{{PROYECTO}} · {{CLIENTE}} · {{FECHA}}\n\nOBJETIVO\n{{OBJETIVO}}\n\nRESUMEN EJECUTIVO\n{{RESUMEN}}\n\nTEMAS TRATADOS\n{{TEMAS}}\n\nDECISIONES\n{{DECISIONES}}\n\n"
-                "ACUERDOS Y COMPROMISOS\n{{ACUERDOS}}\n\nPENDIENTES DEL CLIENTE\n{{PENDIENTES}}\n\nRIESGOS\n{{RIESGOS}}\n\nSIGUIENTES PASOS\n{{PASOS}}\n\nPRÓXIMA SESIÓN\n{{PROXIMA}}\n\n— AlphaQueb Consulting · alphaqueb.com")
-        tid, _url = acc.create_doc("Plantilla · Resumen Ejecutivo de Sesión (AlphaOps)", text, folder)
+                "ACUERDOS Y COMPROMISOS\n{{ACUERDOS}}\n\nPENDIENTES DEL CLIENTE\n{{PENDIENTES}}\n\nRIESGOS\n{{RIESGOS}}\n\nSIGUIENTES PASOS\n{{PASOS}}\n\nPRÓXIMA SESIÓN\n{{PROXIMA}}\n\n— Alphaqueb Consulting · alphaqueb.com")
+        tid, _url = acc.create_doc("Plantilla · Resumen Ejecutivo de Sesión (Alphaops)", text, folder)
         icp.set_param("aq_google.session_template_doc_id", tid)
         return tid
 
@@ -306,7 +338,7 @@ class OpsMeetingSession(models.Model):
 class SessionImport(models.AbstractModel):
     """Importa el histórico de Calendar para construir el mapa de sesiones."""
     _name = "aq.ops.session.importer"
-    _description = "AlphaOps: importador de sesiones históricas"
+    _description = "Alphaops: importador de sesiones históricas"
 
     PREFIX_MAP = {"STONIA": "Stonia", "SOMGROUP": "Stonia", "SOM": "Stonia", "SOMCABO": "SOM Cabos", "GETTING": "Getting Ready", "CREATTIVO": "Creattivo", "SAI": "SAI", "HMX": "Hexágonos", "HEXÁGONOS": "Hexágonos", "HEXAGONOS": "Hexágonos"}
     DOMAIN_MAP = {"somgroup.mx": "Stonia", "stonia.com.mx": "Stonia", "hexagonosmexicanos.com": "Hexágonos", "creattivo.mx": "Creattivo"}

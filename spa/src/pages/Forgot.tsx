@@ -11,7 +11,7 @@ export default function Forgot() {
   return (
     <div className="login"><button className="theme-btn" style={{ position: 'fixed', top: 14, right: 14 }} onClick={() => { const t = (localStorage.getItem('aq_theme') || 'dark') === 'dark' ? 'light' : 'dark'; localStorage.setItem('aq_theme', t); document.documentElement.setAttribute('data-theme', t) }} aria-label="Tema">☀/☾</button>
       <form className="box" onSubmit={submit}>
-        <img className="logo" src="/aq_admin_portal/static/description/logo.png" alt="AlphaQueb" />
+        <img className="logo" src="/aq_admin_portal/static/description/logo.png" alt="Alphaqueb" />
         <h1>Recuperar contraseña</h1>
         <p className="sub">Te enviaremos un enlace para establecer una nueva contraseña.</p>
         {msg && <div className="alert ok">{msg}</div>}

@@ -1,4 +1,4 @@
-# AlphaQueb · Portal de Control Administrativo (`aq_admin_portal`)
+# Alphaqueb · Portal de Control Administrativo (`aq_admin_portal`)
 
 Módulo para **Odoo 19** que expone un **portal web externo** (React, bundle independiente de los assets de Odoo)
 con **usuarios propios** (no son `res.users`), para la coordinación administrativa y el control operativo
@@ -104,7 +104,7 @@ el resumen diario de alertas a Dirección y Coordinación.
 
 ---
 
-# Operaciones (AlphaOps) — segundo dominio en el mismo módulo
+# Operaciones (Alphaops) — segundo dominio en el mismo módulo
 
 Misma plataforma, dos dominios. **Identidad, organizaciones/clientes, branding, notificaciones, auditoría, usuarios e integraciones son compartidos**;
 contratos, cotizaciones, facturación, cobranza, CxP/CxC, bancos, tarifas/márgenes, legal y RH viven solo en Administración;
@@ -186,7 +186,7 @@ migración, soporte, regulado, capacitación, cierre/handoff y creativo/catálog
 * **Bitácora inmutable** (`aq.portal.audit.log` no admite edición ni borrado manual) y **políticas de retención** (`aq_ops.retention_days_*`).
 * Proyectos semilla con plantilla aplicada: Stonia, SAI, Hexágonos, One of a Kind y Getting Ready.
 
-## Experiencia de uso (AlphaOps)
+## Experiencia de uso (Alphaops)
 * **Proyecto activo global** (sidebar, barra superior, paleta ⌘K, tecla `P`): filtra tablero, listados, solicitudes, Mi trabajo, tiempo y reportes; precarga el proyecto al crear. "Todos los proyectos" para la vista global.
 * **Panel lateral (peek)** al tocar un elemento: esenciales editables, acciones de un toque (iniciar/terminar/bloquear/temporizador), subtareas tipo checklist y comentarios, sin salir del Kanban.
 * **Edición en línea** de estado, responsable y fecha en Kanban y Lista; **acciones masivas** en Lista; **alta rápida** con plantillas por tipo (tarea, historia, defecto, entregable, requerimiento).
@@ -205,8 +205,8 @@ migración, soporte, regulado, capacitación, cierre/handoff y creativo/catálog
 1. En Google Cloud (proyecto `gen-lang-client-0612937048`) están habilitadas las APIs de Gmail, Calendar, Meet, Drive, Docs y Sheets, y el cliente OAuth "Cliente web 1" tiene como origen `https://odoo.alphaqueb.com` y URI de retorno `https://odoo.alphaqueb.com/aq_portal/google/callback`.
 2. Configura `GOOGLE_CLIENT_ID` (ya viene precargado como parámetro) y `GOOGLE_CLIENT_SECRET` (variable de entorno del servidor o parámetro del sistema; créalo con "Add secret" en el cliente OAuth).
 3. En el portal: **Operaciones → Google Workspace** (o **Administración → Google Workspace**) → *Conectar cuenta de Google* (Dirección / propietario de plataforma). Se guarda el refresh token en `aq.google.account`.
-4. Cron cada 10 minutos (`aq.google.sync.cron_sync`): Calendar → reuniones de proyecto; Meet API → transcripciones a la reunión + propuestas del copiloto; Drive → notas de Gemini; Gmail → bandeja enrutada (`aq.google.message`) según **reglas** (`aq.google.rule`, precargadas) y copiloto DeepSeek: Administración (facturación, cobranza, pagos, legal, RH, prospectos) u Operaciones (solicitudes, incidentes, reuniones). Conversión con un clic o automática por regla; los correos procesados reciben la etiqueta `AlphaQueb/Procesado`.
-5. Salidas: minuta de reunión a Google Docs y portafolio a Google Sheets (carpeta "AlphaOps").
+4. Cron cada 10 minutos (`aq.google.sync.cron_sync`): Calendar → reuniones de proyecto; Meet API → transcripciones a la reunión + propuestas del copiloto; Drive → notas de Gemini; Gmail → bandeja enrutada (`aq.google.message`) según **reglas** (`aq.google.rule`, precargadas) y copiloto DeepSeek: Administración (facturación, cobranza, pagos, legal, RH, prospectos) u Operaciones (solicitudes, incidentes, reuniones). Conversión con un clic o automática por regla; los correos procesados reciben la etiqueta `Alphaqueb/Procesado`.
+5. Salidas: minuta de reunión a Google Docs y portafolio a Google Sheets (carpeta "Alphaops").
 
 ## Generador y mapa de sesiones
 * Nomenclatura y secuencias tomadas del histórico real de Calendar: `SESIÓN #n– GRUPO– TIPO | dd/mm/aaaa` (series SOMGROUP —continuación de STONIA—, SOMCABO, GETTING, CREATTIVO) y formato SAI `PO-25002-SAI-Sesión #n - Tema`. Campos por proyecto: `session_prefix`, `session_seq`, `session_po`, `group_email`.

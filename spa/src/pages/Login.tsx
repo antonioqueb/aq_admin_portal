@@ -20,8 +20,8 @@ export default function Login() {
   return (
     <div className="login"><button className="theme-btn" style={{ position: 'fixed', top: 14, right: 14 }} onClick={() => { const t = (localStorage.getItem('aq_theme') || 'dark') === 'dark' ? 'light' : 'dark'; localStorage.setItem('aq_theme', t); document.documentElement.setAttribute('data-theme', t) }} aria-label="Tema">☀/☾</button>
       <form className="box" onSubmit={mfaToken ? verify : submit}>
-        <img className="logo" src="/aq_admin_portal/static/description/logo.png" alt="AlphaQueb" />
-        <h1>{mfaToken ? 'Verificación en dos pasos' : 'Portal AlphaQueb'}</h1>
+        <img className="logo" src="/aq_admin_portal/static/description/logo.png" alt="Alphaqueb" />
+        <h1>{mfaToken ? 'Verificación en dos pasos' : 'Portal Alphaqueb'}</h1>
         <p className="sub">{mfaToken ? 'Ingrese el código de su aplicación de autenticación.' : 'Administración · Operaciones · Control de entrega'}</p>
         {err && <div className="alert err">{err}</div>}
         {!mfaToken ? (<>

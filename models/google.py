@@ -51,7 +51,7 @@ class GoogleAccount(models.Model):
     sync_meet = fields.Boolean(default=True, string="Sincronizar Meet (transcripciones)")
     sync_drive = fields.Boolean(default=True, string="Sincronizar Drive (notas de Gemini)")
     gmail_query = fields.Char(default="newer_than:3d -in:spam -in:trash -category:promotions -category:social", string="Consulta Gmail")
-    gmail_label_done = fields.Char(default="AlphaQueb/Procesado", string="Etiqueta al procesar")
+    gmail_label_done = fields.Char(default="Alphaqueb/Procesado", string="Etiqueta al procesar")
     calendar_id = fields.Char(default="primary")
     drive_folder_name = fields.Char(default="Meet Recordings", string="Carpeta de Drive de grabaciones/notas")
     last_gmail_sync = fields.Datetime()
@@ -204,9 +204,11 @@ class GoogleAccount(models.Model):
         return self._call("GET", "https://www.googleapis.com/drive/v3/files/%s/export" % file_id, params={"mimeType": "text/plain"})
 
     def drive_folder_id(self, name):
-        f = self.drive_search("name='%s' and mimeType='application/vnd.google-apps.folder' and trashed=false" % name.replace("'", "\\'"))
-        if f:
-            return f[0]["id"]
+        """Reutiliza la carpeta existente aunque su nombre tenga otra grafía (p. ej. 'AlphaOps' → 'Alphaops')."""
+        for candidate in dict.fromkeys([name, name.replace("ops", "Ops"), name.replace("Ops", "ops")]):
+            f = self.drive_search("name='%s' and mimeType='application/vnd.google-apps.folder' and trashed=false" % candidate.replace("'", "\\'"))
+            if f:
+                return f[0]["id"]
         return self.post("https://www.googleapis.com/drive/v3/files", {"name": name, "mimeType": "application/vnd.google-apps.folder"})["id"]
 
     def create_doc(self, title, text, folder_id=None):
@@ -553,7 +555,7 @@ class GoogleSync(models.AbstractModel):
         AI = self.env["aq.ops.ai"].sudo()
         out = None
         if AI.available():
-            out = AI.chat("Clasifica este correo para AlphaQueb Consulting (consultora Odoo). Responde JSON {\"app\": \"admin\"|\"ops\", \"category\": meeting_notes|request|incident|invoice|payable|legal|hr|prospect|agreement|info|other, "
+            out = AI.chat("Clasifica este correo para Alphaqueb Consulting (consultora Odoo). Responde JSON {\"app\": \"admin\"|\"ops\", \"category\": meeting_notes|request|incident|invoice|payable|legal|hr|prospect|agreement|info|other, "
                           "\"summary\": str (2 líneas), \"action\": str (acción sugerida, una línea)}. Administración = contratos, facturación, cobranza, pagos, legal, RH, prospectos. "
                           "Operaciones = proyectos, requerimientos, incidencias, reuniones, entregables.\nDe: %s\nAsunto: %s\nCuerpo:\n%s" % (msg.get("from"), msg.get("subject"), (msg.get("body") or "")[:3000]), json_mode=True, max_tokens=300)
         d = AI.parse_json(out) if out else None
@@ -736,14 +738,14 @@ class GoogleSync(models.AbstractModel):
             rows.append([p.name, p.partner_id.name, p.pm_id.name or "", p.stage, p.health, p.priority, p.risk_level, round(p.hours_pct, 1), p.hours_consumed, p.hours_authorized, nm.name or "", str(nm.date_current or ""), p.next_action or "", p.next_action_owner_id.name or "", str(p.next_action_date or "")])
         icp = self.env["ir.config_parameter"].sudo()
         sid = icp.get_param("aq_google.portfolio_sheet_id")
-        folder = acc.drive_folder_id("AlphaOps")
+        folder = acc.drive_folder_id("Alphaops")
         if sid:
             try:
                 acc.update_sheet(sid, rows)
                 return "https://docs.google.com/spreadsheets/d/%s/edit" % sid
             except UserError:
                 sid = None
-        sid, url = acc.create_sheet("AlphaOps · Portafolio", rows, folder)
+        sid, url = acc.create_sheet("Alphaops · Portafolio", rows, folder)
         icp.set_param("aq_google.portfolio_sheet_id", sid)
         return url
 
@@ -759,7 +761,7 @@ class OpsMeetingGoogle(models.Model):
     def action_create_google_doc(self):
         Sync = self.env["aq.google.sync"]
         acc = Sync._account()
-        folder = acc.drive_folder_id("AlphaOps")
+        folder = acc.drive_folder_id("Alphaops")
         for m in self:
             rows = "\n".join("- %s (%s, %s)" % (a.name, a.owner_id.name or a.owner_partner_id.name or "-", a.due_date or "-") for a in m.agreement_ids)
             text = "%s\n%s · %s\n\nAgenda:\n%s\n\nMinuta:\n%s\n\nAcuerdos:\n%s\n" % (m.name, m.project_id.name, m.date, m.agenda or "", re.sub(r"<[^>]+>", " ", m.minutes or ""), rows)

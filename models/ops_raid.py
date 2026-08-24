@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AlphaOps · registro RAID e incidentes productivos con flujo de 11 pasos y SLA."""
+"""Alphaops · registro RAID e incidentes productivos con flujo de 11 pasos y SLA."""
 from datetime import timedelta
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
@@ -12,7 +12,7 @@ SLA = {"S1": (1, 8), "S2": (4, 24), "S3": (8, 72), "S4": (24, 160)}  # (horas re
 
 class OpsRaid(models.Model):
     _name = "aq.ops.raid"
-    _description = "AlphaOps: RAID (riesgo, supuesto, problema, dependencia)"
+    _description = "Alphaops: RAID (riesgo, supuesto, problema, dependencia)"
     _inherit = ["aq.portal.mixin", "mail.thread"]
     _order = "severity desc, due_date"
 
@@ -55,7 +55,7 @@ class OpsRaid(models.Model):
 
 class OpsIncident(models.Model):
     _name = "aq.ops.incident"
-    _description = "AlphaOps: incidente productivo"
+    _description = "Alphaops: incidente productivo"
     _inherit = ["aq.portal.mixin", "mail.thread"]
     _order = "severity, create_date desc"
 

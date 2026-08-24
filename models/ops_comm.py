@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AlphaOps · notificaciones, automatizaciones gobernadas, eventos entre dominios (outbox), integraciones."""
+"""Alphaops · notificaciones, automatizaciones gobernadas, eventos entre dominios (outbox), integraciones."""
 import json
 import logging
 from datetime import timedelta
@@ -28,7 +28,7 @@ EVENT_TYPES = [
 class OpsNotification(models.Model):
     """5.14 Centro de notificaciones con prioridad y acción directa."""
     _name = "aq.ops.notification"
-    _description = "AlphaOps: notificación"
+    _description = "Alphaops: notificación"
     _order = "priority desc, create_date desc"
 
     user_id = fields.Many2one("aq.portal.user", required=True, index=True, ondelete="cascade")
@@ -91,14 +91,14 @@ class OpsNotification(models.Model):
             ai = self.env["aq.ops.ai"].digest_summary(["[%s] %s" % (n.category, n.title) for n in notes])
             rows = (("<p style='border-left:3px solid #c89eff;padding-left:10px'><b>Copiloto:</b> %s</p>" % ai.replace("\n", "<br/>")) if ai else "") + rows
             html = Brand.wrap(_("Resumen de Operaciones"), "<ul>%s</ul>" % rows, _("Abrir Operaciones"), Brand.portal_url() + "/ops/notifications", subtitle=_("%d notificaciones pendientes") % len(notes))
-            self.env["mail.mail"].sudo().create({"subject": _("AlphaOps · %d pendientes") % len(notes), "email_to": u.email, "body_html": html}).send()
+            self.env["mail.mail"].sudo().create({"subject": _("Alphaops · %d pendientes") % len(notes), "email_to": u.email, "body_html": html}).send()
             notes.write({"emailed": True})
 
 
 class OpsAutomation(models.Model):
     """Disparador → condición → acción, con propietario técnico e historial."""
     _name = "aq.ops.automation"
-    _description = "AlphaOps: automatización"
+    _description = "Alphaops: automatización"
     _order = "sequence"
 
     name = fields.Char(required=True)
@@ -139,7 +139,7 @@ class OpsAutomation(models.Model):
 
 class OpsAutomationLog(models.Model):
     _name = "aq.ops.automation.log"
-    _description = "AlphaOps: ejecución de automatización"
+    _description = "Alphaops: ejecución de automatización"
     _order = "create_date desc"
     automation_id = fields.Many2one("aq.ops.automation", required=True, ondelete="cascade")
     result = fields.Selection([("ok", "OK"), ("error", "Error")])
@@ -150,7 +150,7 @@ class OpsAutomationLog(models.Model):
 class OpsEvent(models.Model):
     """Intercambio de eventos autorizados entre dominios (patrón outbox). Solo resultados; nunca contenido indiscriminado."""
     _name = "aq.ops.event"
-    _description = "AlphaOps: evento entre Administración y Operaciones"
+    _description = "Alphaops: evento entre Administración y Operaciones"
     _order = "create_date desc"
 
     direction = fields.Selection([("ops", "Operaciones → Administración"), ("admin", "Administración → Operaciones")], required=True)
@@ -228,9 +228,9 @@ class OpsEvent(models.Model):
         if t == "scope_change_requested" and proj:
             self.env["aq.portal.change.request"].create({"name": p.get("change"), "project_id": proj.id, "requested_by": _("Operaciones"), "description": p.get("impact"),
                                                          "classification": "cambio_requerimiento", "estimate_hours": p.get("hours", 0), "ops_change_id": self.source_id,
-                                                         "notes": _("Evento AlphaOps #%d · change_id=%s") % (self.id, self.source_id)})
+                                                         "notes": _("Evento Alphaops #%d · change_id=%s") % (self.id, self.source_id)})
         if t in ("milestone_validated", "deliverable_accepted") and proj:
-            proj.message_post(body=_("AlphaOps: %s — %s (%s)%s") % (dict(EVENT_TYPES)[t], p.get("milestone") or p.get("deliverable") or p.get("change"), p.get("date", ""),
+            proj.message_post(body=_("Alphaops: %s — %s (%s)%s") % (dict(EVENT_TYPES)[t], p.get("milestone") or p.get("deliverable") or p.get("change"), p.get("date", ""),
                                                                    _(" · habilita facturación") if p.get("enables_billing") else ""))
             if p.get("enables_billing") or t == "deliverable_accepted":
                 self.env["aq.portal.alert"]._upsert("ops_bill_%d" % self.id, {"name": _("Facturable: %s · %s") % (proj.name, p.get("milestone") or p.get("deliverable") or p.get("change")),
@@ -239,11 +239,11 @@ class OpsEvent(models.Model):
             bucket = proj.hour_bucket_ids[:1]
             if bucket:
                 bucket.write({"hours_executed": bucket.hours_executed + float(p.get("hours", 0))})
-            proj.message_post(body=_("AlphaOps: %.1f h aprobadas para facturación (semana %s)") % (float(p.get("hours", 0)), p.get("week", "")))
+            proj.message_post(body=_("Alphaops: %.1f h aprobadas para facturación (semana %s)") % (float(p.get("hours", 0)), p.get("week", "")))
         if t == "project_ready_to_start" and proj:
             proj.with_context(aq_skip_activity=True).write({"stage": "ejecucion"})
         if t == "project_ready_to_close" and proj:
-            proj.message_post(body=_("AlphaOps: proyecto listo para cierre (%s pendientes conocidos). Evento de facturación final.") % p.get("pending_known", 0))
+            proj.message_post(body=_("Alphaops: proyecto listo para cierre (%s pendientes conocidos). Evento de facturación final.") % p.get("pending_known", 0))
             self.env["aq.portal.alert"]._upsert("ops_close_%d" % self.id, {"name": _("Cierre: facturación final de %s") % proj.name, "alert_type": "factura_por_emitir", "severity": "2",
                                                                            "resource": "projects", "res_model": proj._name, "res_id": proj.id})
         if t == "admin_work_referred":
@@ -254,7 +254,7 @@ class OpsEvent(models.Model):
 class OpsIntegration(models.Model):
     """Integraciones autorizadas (compartidas): DeepSeek, Drive, Teams/Slack/WhatsApp (preparadas)."""
     _name = "aq.ops.integration"
-    _description = "AlphaOps: integración"
+    _description = "Alphaops: integración"
 
     name = fields.Char(required=True)
     kind = fields.Selection([("deepseek", "DeepSeek (copiloto IA)"), ("drive", "Google Drive"), ("teams", "Microsoft Teams"), ("slack", "Slack"), ("whatsapp", "WhatsApp"), ("webhook", "Webhook")], required=True)
@@ -333,7 +333,7 @@ class OpsNotificationChannels(models.Model):
     @api.model
     def ics_for_user(self, user, project_domain):
         """Calendario ICS: compromisos, hitos, reuniones, validaciones y liberaciones del usuario."""
-        lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//AlphaQueb//AlphaOps//ES", "X-WR-CALNAME:AlphaOps · %s" % user.name]
+        lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Alphaqueb//Alphaops//ES", "X-WR-CALNAME:Alphaops · %s" % user.name]
         def ev(uid, d, summary, desc=""):
             if not d:
                 return

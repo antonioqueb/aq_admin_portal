@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AlphaOps · reuniones, acuerdos (con confirmación humana) y decisiones versionadas."""
+"""Alphaops · reuniones, acuerdos (con confirmación humana) y decisiones versionadas."""
 import json
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
@@ -7,7 +7,7 @@ from odoo.exceptions import UserError
 
 class OpsMeeting(models.Model):
     _name = "aq.ops.meeting"
-    _description = "AlphaOps: reunión"
+    _description = "Alphaops: reunión"
     _inherit = ["aq.portal.mixin", "mail.thread"]
     _order = "date desc"
 
@@ -56,7 +56,7 @@ class OpsMeeting(models.Model):
 class OpsMeetingAgreement(models.Model):
     """Acuerdo/compromiso de minuta. Se convierte en tarea SOLO tras confirmación humana (regla 7)."""
     _name = "aq.ops.meeting.agreement"
-    _description = "AlphaOps: acuerdo de reunión"
+    _description = "Alphaops: acuerdo de reunión"
     meeting_id = fields.Many2one("aq.ops.meeting", required=True, ondelete="cascade")
     name = fields.Char(required=True, string="Acuerdo / compromiso")
     owner_id = fields.Many2one("aq.portal.member", string="Responsable interno")
@@ -82,7 +82,7 @@ class OpsMeetingAgreement(models.Model):
 
 class OpsMeetingQuestion(models.Model):
     _name = "aq.ops.meeting.question"
-    _description = "AlphaOps: pregunta abierta"
+    _description = "Alphaops: pregunta abierta"
     meeting_id = fields.Many2one("aq.ops.meeting", required=True, ondelete="cascade")
     name = fields.Char(required=True, string="Pregunta")
     owner_partner_id = fields.Many2one("res.partner", string="Debe responder (cliente)")
@@ -95,7 +95,7 @@ class OpsMeetingQuestion(models.Model):
 class OpsDecision(models.Model):
     """5.7 Una decisión tiene vida propia; aprobada no se edita: se versiona."""
     _name = "aq.ops.decision"
-    _description = "AlphaOps: decisión"
+    _description = "Alphaops: decisión"
     _inherit = ["aq.portal.mixin", "mail.thread"]
     _order = "date desc"
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AlphaOps · tiempo real (temporizador, captura, aprobación semanal) y capacidad futura."""
+"""Alphaops · tiempo real (temporizador, captura, aprobación semanal) y capacidad futura."""
 from datetime import timedelta
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
@@ -11,7 +11,7 @@ TIME_CATEGORIES = [("analisis", "Análisis"), ("configuracion", "Configuración"
 
 class OpsTimesheet(models.Model):
     _name = "aq.ops.timesheet"
-    _description = "AlphaOps: registro de tiempo"
+    _description = "Alphaops: registro de tiempo"
     _order = "date desc, id desc"
 
     member_id = fields.Many2one("aq.portal.member", required=True, string="Integrante", index=True)
@@ -101,7 +101,7 @@ class OpsTimesheet(models.Model):
 class OpsCapacity(models.Model):
     """Capacidad futura por persona y semana; carga desde elementos asignados."""
     _name = "aq.ops.capacity"
-    _description = "AlphaOps: capacidad semanal"
+    _description = "Alphaops: capacidad semanal"
     _order = "week desc, member_id"
 
     member_id = fields.Many2one("aq.portal.member", required=True)

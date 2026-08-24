@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo noupdate="1">
     <record id="param_google_client_id" model="ir.config_parameter"><field name="key">GOOGLE_CLIENT_ID</field><field name="value">449536040252-amopts0138bja9t1nsmhue779ge1avb1.apps.googleusercontent.com</field></record>
-    <record id="google_account_main" model="aq.google.account"><field name="name">Cuenta principal de AlphaQueb</field></record>
+    <record id="google_account_main" model="aq.google.account"><field name="name">Cuenta principal de Alphaqueb</field></record>
     <record id="google_rule_meet" model="aq.google.rule"><field name="name">Notas y grabaciones de Meet → Reunión (Operaciones)</field><field name="sequence">5</field><field name="match_from">meet-recordings-noreply@google.com</field><field name="target_app">ops</field><field name="target_type">meeting_notes</field><field name="auto_convert" eval="True"/></record>
     <record id="google_rule_gemini" model="aq.google.rule"><field name="name">Resúmenes de Gemini → Reunión (Operaciones)</field><field name="sequence">6</field><field name="match_subject">Gemini</field><field name="target_app">ops</field><field name="target_type">meeting_notes</field><field name="auto_convert" eval="True"/></record>
     <record id="google_rule_cfdi" model="aq.google.rule"><field name="name">Facturas / CFDI / pagos → Administración (cobranza)</field><field name="sequence">20</field><field name="match_keywords">factura,cfdi,complemento de pago,comprobante de pago,estado de cuenta</field><field name="target_app">admin</field><field name="target_type">admin_receivable</field></record>

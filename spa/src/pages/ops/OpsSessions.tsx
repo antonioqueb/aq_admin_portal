@@ -10,7 +10,9 @@ export default function OpsSessions() {
   const { toast, user, schema } = useApp()
   const active = useActiveProject()
   const [d, setD] = useState<any>(null)
-  const [form, setForm] = useState<any>({ project: null, type: '', date: today(), time: '10:00', duration: '', extra: '', agenda: '' })
+  const [form, setForm] = useState<any>({ project: null, type: '', date: today(), time: '10:00', duration: '', extra: '', agenda: '', send: true })
+  const [invitees, setInvitees] = useState<any[]>([])
+  const [created, setCreated] = useState<any>(null)
   const [busy, setBusy] = useState(false)
   const [group, setGroup] = useState<'fecha' | 'proyecto'>('proyecto')
   const [inbox, setInbox] = useState<any[]>([])
@@ -19,13 +21,22 @@ export default function OpsSessions() {
   const { rapi } = useApp()
   const load = useCallback(() => { api.get('/ops/sessions/map', active ? { project_id: active.id } : {}).then(setD).catch((e: any) => toast(e.message, 'err')); rapi.list('google_inbox', { limit: 30, order: 'date desc', filters: { category: 'meeting_notes' } }).then(r => setInbox(r.records)).catch(() => {}) }, [toast, active, rapi])
   useEffect(() => { load(); if (active && !form.project) setForm((f: any) => ({ ...f, project: { id: active.id, name: active.name } })) }, [load])  // eslint-disable-line
+  useEffect(() => {
+    if (form.project && form.type) api.get('/ops/sessions/invitees', { project_id: form.project.id, type_id: Number(form.type) }).then(r => setInvitees(r.invitees)).catch(() => setInvitees([]))
+    else setInvitees([])
+  }, [form.project, form.type])
+  const toggleInv = (email: string) => setInvitees(inv => inv.map(i => i.email === email ? { ...i, checked: !i.checked } : i))
+  const copy = async (text: string, what: string) => { try { await navigator.clipboard.writeText(text); toast(`${what} copiado al portapapeles`, 'ok') } catch { toast('Copie manualmente: ' + text, 'info') } }
   const gen = async () => {
     if (!form.project || !form.type) { toast('Elija proyecto y tipo de sesión', 'err'); return }
     setBusy(true)
     try {
-      const r = await api.post('/ops/sessions/generate', { project_id: form.project.id, type_id: Number(form.type), start: `${form.date}T${form.time}:00`, duration: form.duration ? Number(form.duration) : undefined, extra_emails: form.extra.split(/[,;\s]+/).filter((x: string) => x.includes('@')), agenda: form.agenda || undefined })
-      toast(`Sesión creada: ${r.meeting.name} · invitaciones enviadas`, 'ok')
-      if (r.meeting.meet) navigator.clipboard?.writeText(r.meeting.meet)
+      const r = await api.post('/ops/sessions/generate', { project_id: form.project.id, type_id: Number(form.type), start: `${form.date}T${form.time}:00`, duration: form.duration ? Number(form.duration) : undefined,
+        extra_emails: form.extra.split(/[,;\s]+/).filter((x: string) => x.includes('@')), agenda: form.agenda || undefined,
+        attendees: invitees.filter(i => i.checked).map(i => i.email), send_invites: form.send })
+      setCreated(r.meeting)
+      if (r.meeting.meet) { try { await navigator.clipboard.writeText(r.meeting.meet) } catch {} }
+      toast(`Sesión creada: ${r.meeting.name}${form.send ? ' · invitaciones enviadas' : ' · sin enviar correo'} · liga copiada`, 'ok')
       load()
     } catch (e: any) { toast(e.message, 'err') } finally { setBusy(false) }
   }
@@ -58,6 +69,20 @@ export default function OpsSessions() {
             <div className="field"><label>&nbsp;</label><button className="btn" style={{ width: '100%' }} disabled={busy} onClick={gen}>{busy ? 'Creando…' : '⚡ Generar sesión'}</button></div>
           </div>
           <div className="field"><label>Agenda (opcional; si se omite, la del tipo)</label><textarea value={form.agenda} onChange={e => setForm({ ...form, agenda: e.target.value })} /></div>
+          {invitees.length > 0 && (
+            <div className="field">
+              <label>Invitados ({invitees.filter(i => i.checked).length} de {invitees.length} seleccionados) · desmarca a quien no deba recibir la invitación</label>
+              <div className="inv-grid">
+                {invitees.map(i => <label key={i.email} className={'inv' + (i.checked ? ' on' : '')}><input type="checkbox" checked={i.checked} onChange={() => toggleInv(i.email)} /><span><b>{i.name}</b><small>{i.email}</small></span><em className="badge">{i.kind}</em></label>)}
+              </div>
+              <div className="toolbar" style={{ marginTop: 6 }}>
+                <button className="btn link small" onClick={() => setInvitees(inv => inv.map(i => ({ ...i, checked: true })))}>Todos</button>
+                <button className="btn link small" onClick={() => setInvitees(inv => inv.map(i => ({ ...i, checked: false })))}>Ninguno</button>
+                <button className="btn link small" onClick={() => setInvitees(inv => inv.map(i => ({ ...i, checked: i.kind === 'interno' })))}>Solo equipo</button>
+                <label className="check" style={{ padding: 0, marginLeft: 'auto' }}><input type="checkbox" checked={form.send} onChange={e => setForm({ ...form, send: e.target.checked })} /> Enviar invitación por correo (si lo desmarcas, solo se crea la sesión y tú compartes la liga)</label>
+              </div>
+            </div>
+          )}
           {form.project && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Folio siguiente: <b>{(() => { const p = d.projects.find((x: any) => x.project === form.project.name); const t = d.types.find((x: any) => x.id === Number(form.type)); if (!p) return '—'; return p.po ? `${p.po}-${p.prefix || ''}-Sesión #${(p.seq || 0) + 1} - ${t?.name || '…'}` : `SESIÓN #${(p.seq || 0) + 1}– ${p.prefix || '…'}– ${(t?.name || '…').toUpperCase()} | ${form.date.split('-').reverse().join('/')}` })()}</b> · Al terminar: transcripción → resumen ejecutivo IA en tu plantilla de Docs → correo → actividades creadas.</div>}
         </div>
       )}
@@ -67,6 +92,24 @@ export default function OpsSessions() {
           <div className="table-wrap"><table className="list"><thead><tr><th>Fecha</th><th>Sesión</th><th>Origen</th><th>Proyecto</th><th>Estado</th><th>Documentos</th><th></th></tr></thead><tbody>
             {inbox.map((m: any) => <tr key={m.id} className="row"><td>{fmtDate(m.date)}</td><td><Link to={`/ops/r/google_inbox/${m.id}`}>{m.subject}</Link></td><td>{m.source}</td><td>{m.project_id?.name || <span className="badge warn">sin proyecto</span>}</td><td><span className={'badge ' + (m.state === 'convertido' ? 'ok' : m.state === 'procesado' ? 'info' : '')}>{m.state}</span></td><td>{m.summary_doc_url && <a href={m.summary_doc_url} target="_blank" rel="noreferrer">Mi documento</a>}</td><td>{m.state === 'nuevo' && <button className="btn secondary small" onClick={() => rapi.action('google_inbox', m.id, 'action_process_notes').then(() => { toast('Procesada', 'ok'); load() }).catch((e: any) => toast(e.message, 'err'))}>Procesar</button>}</td></tr>)}
           </tbody></table></div>
+        </div>
+      )}
+      {created && (
+        <div className="card" style={{ borderColor: 'var(--primary)' }}>
+          <h3>Sesión lista · {created.name}</h3>
+          <div className="share-row">
+            <input type="text" readOnly value={created.meet || ''} onFocus={e => e.currentTarget.select()} />
+            <button className="btn" onClick={() => copy(created.meet, 'Enlace de Meet')}>📋 Copiar liga</button>
+            <a className="btn secondary" href={created.meet} target="_blank" rel="noreferrer">Abrir Meet</a>
+          </div>
+          <div className="field" style={{ marginTop: 10 }}><label>Mensaje listo para WhatsApp o chat compartido</label><textarea rows={9} value={created.share_text || ''} onChange={e => setCreated({ ...created, share_text: e.target.value })} /></div>
+          <div className="toolbar">
+            <button className="btn" onClick={() => copy(created.share_text, 'Mensaje')}>📋 Copiar mensaje</button>
+            <a className="btn secondary" href={`https://wa.me/?text=${encodeURIComponent(created.share_text || '')}`} target="_blank" rel="noreferrer">Compartir por WhatsApp</a>
+            <a className="btn secondary" href={`mailto:?subject=${encodeURIComponent(created.name)}&body=${encodeURIComponent(created.share_text || '')}`}>Enviar por correo</a>
+            <Link className="btn secondary" to={`/ops/r/meetings/${created.id}`}>Abrir sesión</Link>
+            <button className="btn link" onClick={() => setCreated(null)}>Cerrar</button>
+          </div>
         </div>
       )}
       <div className="grid cols-4" style={{ marginBottom: 14 }}>

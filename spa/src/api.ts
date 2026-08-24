@@ -85,6 +85,7 @@ export const ops = {
   capacityForecast: (weeks = 4) => call('GET', '/ops/capacity/forecast' + qs({ weeks })),
   views: (resource?: string) => call('GET', '/ops/views' + qs({ resource })),
   saveView: (vals: any) => call('POST', '/ops/views', vals),
+  invitees: (project_id: number, type_id: number) => call('GET', '/ops/sessions/invitees' + qs({ project_id, type_id })),
   deleteView: (id: number) => call('DELETE', `/ops/views/${id}`),
   icsUrl: () => `${API}/ops/calendar.ics?token=${encodeURIComponent(getToken() || '')}`,
 }

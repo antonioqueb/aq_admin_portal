@@ -73,7 +73,7 @@ export default function Layout() {
       {offline && <div className="alert err" style={{ borderRadius: 0, margin: 0, textAlign: 'center' }}>Sin conexión: se muestra la última información conocida; los cambios se rechazarán hasta recuperar la red.</div>}
       <header className="topbar">
         <button className={'burger' + (open ? ' on' : '')} onClick={() => setOpen(o => !o)} aria-label="Menú"><span /><span /><span /></button>
-        <a className="toplogo" href="#" onClick={e => { e.preventDefault(); nav(isOps ? '/ops' : '/') }}><img src="/aq_admin_portal/static/description/logo.png" alt="AlphaQueb" /></a>
+        <a className="toplogo" href="#" onClick={e => { e.preventDefault(); nav(isOps ? '/ops' : '/') }}><img src="/aq_admin_portal/static/description/logo.png" alt="Alphaqueb" /></a>
         {user.apps.length > 1 ? (
           <div className="appswitch" role="tablist" aria-label="Aplicación">
             <button role="tab" aria-selected={!isOps} className={!isOps ? 'on' : ''} onClick={() => switchApp('admin')}>Administración</button>
@@ -81,7 +81,7 @@ export default function Layout() {
           </div>
         ) : <div className="appname">{isOps ? <><OpsIcon size={14} /> Operaciones</> : 'Administración'}</div>}
         <div className="crumb">
-          {isOps && <span className="ctx"><i>◆</i>{user.organization_name || 'AlphaQueb'} <i>/</i>
+          {isOps && <span className="ctx"><i>◆</i>{user.organization_name || 'Alphaqueb'} <i>/</i>
             <select className="ctx-select" value={activeProject?.id || ''} onChange={e => { const pr = projects.find(x => x.id === Number(e.target.value)); setActiveProject(pr ? { id: pr.id, name: pr.name } : null) }} title="Proyecto activo (filtra todo Operaciones)">
               <option value="">Todos los proyectos</option>{projects.map(pr => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
             </select>

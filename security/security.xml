@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="module_category_aq_portal" model="ir.module.category">
-        <field name="name">Portal administrativo AlphaQueb</field>
+        <field name="name">Portal administrativo Alphaqueb</field>
         <field name="sequence">60</field>
     </record>
     <record id="privilege_aq_portal" model="res.groups.privilege">

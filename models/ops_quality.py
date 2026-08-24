@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AlphaOps · planes/casos/ejecuciones de prueba, aceptación electrónica inmutable, liberaciones con compuerta."""
+"""Alphaops · planes/casos/ejecuciones de prueba, aceptación electrónica inmutable, liberaciones con compuerta."""
 import hashlib
 import json
 from odoo import api, fields, models, _
@@ -8,7 +8,7 @@ from odoo.exceptions import UserError
 
 class OpsTestPlan(models.Model):
     _name = "aq.ops.test.plan"
-    _description = "AlphaOps: plan de pruebas"
+    _description = "Alphaops: plan de pruebas"
     name = fields.Char(required=True)
     project_id = fields.Many2one("aq.ops.project", required=True)
     environment_id = fields.Many2one("aq.ops.environment", string="Ambiente")
@@ -25,7 +25,7 @@ class OpsTestPlan(models.Model):
 
 class OpsTestCase(models.Model):
     _name = "aq.ops.test.case"
-    _description = "AlphaOps: caso de prueba"
+    _description = "Alphaops: caso de prueba"
     name = fields.Char(required=True)
     plan_id = fields.Many2one("aq.ops.test.plan", ondelete="cascade")
     project_id = fields.Many2one("aq.ops.project", required=True)
@@ -47,7 +47,7 @@ class OpsTestCase(models.Model):
 
 class OpsTestRun(models.Model):
     _name = "aq.ops.test.run"
-    _description = "AlphaOps: ejecución de prueba"
+    _description = "Alphaops: ejecución de prueba"
     _order = "create_date desc"
     case_id = fields.Many2one("aq.ops.test.case", required=True, ondelete="cascade")
     environment_id = fields.Many2one("aq.ops.environment")
@@ -71,7 +71,7 @@ class OpsTestRun(models.Model):
 class OpsAcceptance(models.Model):
     """5.9 Aceptación electrónica: aprobado / cambios solicitados / rechazado. Registro inmutable con huella."""
     _name = "aq.ops.acceptance"
-    _description = "AlphaOps: validación / aceptación"
+    _description = "Alphaops: validación / aceptación"
     _order = "create_date desc"
 
     project_id = fields.Many2one("aq.ops.project", required=True)
@@ -124,7 +124,7 @@ class OpsAcceptance(models.Model):
 class OpsRelease(models.Model):
     """5.10 Liberaciones: ninguna a producción sin respaldo, responsable, pruebas, aprobación, reversión y verificación posterior."""
     _name = "aq.ops.release"
-    _description = "AlphaOps: liberación"
+    _description = "Alphaops: liberación"
     _inherit = ["aq.portal.mixin", "mail.thread"]
     _order = "planned_at desc"
 

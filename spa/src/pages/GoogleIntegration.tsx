@@ -44,7 +44,7 @@ export default function GoogleIntegration() {
             <li><b>Sesiones nuevas</b> en Calendar con clientes → se crean como reuniones del proyecto (equipo, contacto del cliente, enlace de Meet, agenda).</li>
             <li><b>Resúmenes / transcripciones de Meet</b> (API de Meet, correos "Notes:" y documentos "Notas de Gemini" en Drive) → se adjuntan a la reunión, el copiloto propone acuerdos, preguntas y riesgos; el PM confirma.</li>
             <li><b>Correos</b> → según reglas y copiloto llegan a <b>Administración</b> (facturación, cobranza, pagos, legal, RH, prospectos) u <b>Operaciones</b> (solicitudes, incidentes, comunicación de proyecto). Se convierten con un clic o automáticamente si la regla lo indica.</li>
-            <li><b>Salidas</b>: minuta de reunión a Google Docs y portafolio a Google Sheets (carpeta "AlphaOps" en Drive).</li>
+            <li><b>Salidas</b>: minuta de reunión a Google Docs y portafolio a Google Sheets (carpeta "Alphaops" en Drive).</li>
           </ul>
           <div className="toolbar"><Link className="btn secondary small" to={`${base}/r/google_inbox`}>Abrir bandeja</Link><Link className="btn secondary small" to={`${base}/r/google_rules`}>Reglas de enrutamiento</Link>{app === 'ops' && <button className="btn secondary small" onClick={() => api.post('/google/export/portfolio').then(r => { toast('Portafolio exportado', 'ok'); window.open(r.url, '_blank') }).catch((e: any) => toast(e.message, 'err'))}>Exportar portafolio a Sheets</button>}</div>
         </div>

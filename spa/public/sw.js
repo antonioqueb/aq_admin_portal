@@ -1,4 +1,4 @@
-/* AlphaOps · service worker: cascarón sin conexión + caché de lectura de las últimas respuestas de la API. */
+/* Alphaops · service worker: cascarón sin conexión + caché de lectura de las últimas respuestas de la API. */
 const SHELL = 'aq-shell-v1', DATA = 'aq-data-v1'
 self.addEventListener('install', e => { self.skipWaiting() })
 self.addEventListener('activate', e => { e.waitUntil(self.clients.claim()) })

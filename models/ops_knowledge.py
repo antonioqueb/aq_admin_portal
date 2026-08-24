@@ -9,7 +9,7 @@ DOC_TYPES = [("blueprint", "Blueprint"), ("as_is", "AS-IS"), ("to_be", "TO-BE"),
 class OpsDocument(models.Model):
     """5.13 Biblioteca operativa conectada con Drive (referencias seguras, versiones lógicas, documento vigente)."""
     _name = "aq.ops.document"
-    _description = "AlphaOps: documento"
+    _description = "Alphaops: documento"
     _inherit = ["aq.portal.mixin", "mail.thread"]
     _order = "doc_type, name"
 

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <menuitem id="menu_aq_ops_root" name="Operaciones (AlphaOps)" sequence="47" web_icon="aq_admin_portal,static/description/icon_ops.png" groups="aq_admin_portal.group_aq_portal_manager"/>
+    <menuitem id="menu_aq_ops_root" name="Operaciones (Alphaops)" sequence="47" web_icon="aq_admin_portal,static/description/icon_ops.png" groups="aq_admin_portal.group_aq_portal_manager"/>
     <record id="action_open_ops_url" model="ir.actions.act_url"><field name="name">Abrir Operaciones</field><field name="url">/admin-portal/ops</field><field name="target">new</field></record>
     <menuitem id="menu_aq_ops_open" name="Abrir portal de Operaciones" parent="menu_aq_ops_root" sequence="1" action="action_open_ops_url"/>
     <record id="action_aq_ops_project" model="ir.actions.act_window"><field name="name">Proyectos</field><field name="res_model">aq.ops.project</field><field name="view_mode">list,form</field></record>

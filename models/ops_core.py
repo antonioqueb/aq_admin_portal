@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AlphaOps · proyectos, hitos, ambientes, sprints, plantillas, reportes de estado."""
+"""Alphaops · proyectos, hitos, ambientes, sprints, plantillas, reportes de estado."""
 import json
 from datetime import timedelta
 from odoo import api, fields, models, _
@@ -21,7 +21,7 @@ ACTIVE_STAGES = ("preparacion", "kickoff", "linea_base", "ejecucion", "estabiliz
 
 class OpsTemplate(models.Model):
     _name = "aq.ops.template"
-    _description = "AlphaOps: plantilla de proyecto"
+    _description = "Alphaops: plantilla de proyecto"
     _order = "sequence"
 
     name = fields.Char(required=True)
@@ -36,7 +36,7 @@ class OpsTemplate(models.Model):
 
 class OpsTemplatePhase(models.Model):
     _name = "aq.ops.template.phase"
-    _description = "AlphaOps: fase de plantilla"
+    _description = "Alphaops: fase de plantilla"
     _order = "sequence"
     template_id = fields.Many2one("aq.ops.template", required=True, ondelete="cascade")
     sequence = fields.Integer(default=10)
@@ -47,7 +47,7 @@ class OpsTemplatePhase(models.Model):
 
 class OpsTemplateItem(models.Model):
     _name = "aq.ops.template.item"
-    _description = "AlphaOps: elemento de plantilla"
+    _description = "Alphaops: elemento de plantilla"
     _order = "sequence"
     template_id = fields.Many2one("aq.ops.template", required=True, ondelete="cascade")
     sequence = fields.Integer(default=10)
@@ -62,7 +62,7 @@ class OpsTemplateItem(models.Model):
 class OpsProject(models.Model):
     """5.3 Centro de mando del proyecto."""
     _name = "aq.ops.project"
-    _description = "AlphaOps: proyecto"
+    _description = "Alphaops: proyecto"
     _inherit = ["aq.portal.mixin", "mail.thread"]
     _order = "priority desc, name"
 
@@ -200,7 +200,7 @@ class OpsProject(models.Model):
     def _check_next_action(self):
         for p in self:
             if p.stage in ACTIVE_STAGES and not (p.next_action and p.next_action_owner_id and p.next_action_date):
-                raise ValidationError(_("Regla AlphaOps: ningún proyecto activo puede quedarse sin siguiente acción, responsable y fecha compromiso (%s).") % p.name)
+                raise ValidationError(_("Regla Alphaops: ningún proyecto activo puede quedarse sin siguiente acción, responsable y fecha compromiso (%s).") % p.name)
 
     def action_start(self):
         """Inicio formal: no arranca sin responsable, alcance, equipo, validadores, primer hito, siguiente acción, fecha y escalación."""
@@ -274,7 +274,7 @@ class OpsProject(models.Model):
 
 class OpsMilestone(models.Model):
     _name = "aq.ops.milestone"
-    _description = "AlphaOps: hito"
+    _description = "Alphaops: hito"
     _inherit = ["aq.portal.mixin", "mail.thread"]
     _order = "date_current, sequence"
 
@@ -326,7 +326,7 @@ class OpsProjectStage(models.Model):
 
 class OpsEnvironment(models.Model):
     _name = "aq.ops.environment"
-    _description = "AlphaOps: ambiente"
+    _description = "Alphaops: ambiente"
     project_id = fields.Many2one("aq.ops.project", required=True, ondelete="cascade")
     name = fields.Char(required=True)
     env_type = fields.Selection([("dev", "Desarrollo"), ("qa", "QA / pruebas"), ("uat", "UAT"), ("prod", "Producción")], required=True, default="qa")
@@ -338,7 +338,7 @@ class OpsEnvironment(models.Model):
 
 class OpsLink(models.Model):
     _name = "aq.ops.link"
-    _description = "AlphaOps: acceso directo"
+    _description = "Alphaops: acceso directo"
     project_id = fields.Many2one("aq.ops.project", required=True, ondelete="cascade")
     name = fields.Char(required=True)
     url = fields.Char(required=True)
@@ -348,7 +348,7 @@ class OpsLink(models.Model):
 
 class OpsSprint(models.Model):
     _name = "aq.ops.sprint"
-    _description = "AlphaOps: sprint"
+    _description = "Alphaops: sprint"
     _order = "date_start desc"
     name = fields.Char(required=True)
     project_id = fields.Many2one("aq.ops.project", required=True, ondelete="cascade")
@@ -372,7 +372,7 @@ class OpsSprint(models.Model):
 
 class OpsStatusReport(models.Model):
     _name = "aq.ops.status.report"
-    _description = "AlphaOps: reporte de estado"
+    _description = "Alphaops: reporte de estado"
     _order = "date desc"
     project_id = fields.Many2one("aq.ops.project", required=True, ondelete="cascade")
     name = fields.Char(required=True)

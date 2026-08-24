@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AlphaOps · Copiloto de IA (DeepSeek por API). Solo propone; nunca aprueba, acepta, autoriza, cambia fechas ni cierra."""
+"""Alphaops · Copiloto de IA (DeepSeek por API). Solo propone; nunca aprueba, acepta, autoriza, cambia fechas ni cierra."""
 import json
 import logging
 import os
@@ -10,14 +10,14 @@ from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
-SYSTEM = ("Eres el copiloto operativo de AlphaQueb Consulting (consultora Odoo, México). Respondes en español, con precisión y brevedad. "
+SYSTEM = ("Eres el copiloto operativo de Alphaqueb Consulting (consultora Odoo, México). Respondes en español, con precisión y brevedad. "
           "Solo propones: nunca apruebas cambios, alteras alcance, aceptas entregables, autorizas liberaciones, cambias fechas comprometidas, "
           "envías comunicaciones vinculantes, cierras incidentes ni tomas decisiones comerciales. Toda propuesta requiere confirmación humana.")
 
 
 class OpsAI(models.AbstractModel):
     _name = "aq.ops.ai"
-    _description = "AlphaOps: copiloto IA (DeepSeek)"
+    _description = "Alphaops: copiloto IA (DeepSeek)"
 
     @api.model
     def _integration(self):

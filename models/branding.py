@@ -8,7 +8,7 @@ SEVERITY_STYLE = {"4": ("CRÍTICO", BRAND["red"]), "3": ("URGENTE", BRAND["amber
 
 
 class Branding(models.AbstractModel):
-    """Plantilla HTML con el branding de AlphaQueb (alphaqueb.com) para correos del portal."""
+    """Plantilla HTML con el branding de Alphaqueb (alphaqueb.com) para correos del portal."""
     _name = "aq.portal.branding"
     _description = "Portal: branding de correos"
 
@@ -39,7 +39,7 @@ class Branding(models.AbstractModel):
   <span style="display:none;max-height:0;overflow:hidden">%(pre)s</span>
   <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="max-width:640px;margin:0 auto;background:%(bg2)s;border:1px solid %(line)s;border-radius:12px;overflow:hidden">
     <tr><td style="padding:22px 28px;border-bottom:1px solid %(line)s;background:%(bg)s">
-      <img src="%(logo)s" alt="AlphaQueb" height="44" style="height:44px;display:block"/>
+      <img src="%(logo)s" alt="Alphaqueb" height="44" style="height:44px;display:block"/>
     </td></tr>
     <tr><td style="padding:26px 28px 6px">
       <div style="font-family:Oxanium,Roboto,Arial,sans-serif;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:%(lime)s">Portal de control administrativo</div>
@@ -48,7 +48,7 @@ class Branding(models.AbstractModel):
     </td></tr>
     <tr><td style="padding:6px 28px 26px;font-size:14px;line-height:1.55;color:%(text)s">%(body)s%(cta)s</td></tr>
     <tr><td style="padding:16px 28px;border-top:1px solid %(line)s;background:%(bg)s;font-family:Oxanium,Roboto,Arial,sans-serif;font-size:11px;color:%(dim)s;letter-spacing:.04em">
-      ALPHAQUEB CONSULTING &nbsp;·&nbsp; <a href="https://alphaqueb.com" style="color:%(lime)s;text-decoration:none">alphaqueb.com</a> &nbsp;·&nbsp; Mensaje automático del portal administrativo
+      Alphaqueb CONSULTING &nbsp;·&nbsp; <a href="https://alphaqueb.com" style="color:%(lime)s;text-decoration:none">alphaqueb.com</a> &nbsp;·&nbsp; Mensaje automático del portal administrativo
     </td></tr>
   </table>
 </div>""" % dict(b, logo=logo, title=title, body=body_html, cta=cta, pre=preheader or "",

@@ -1,6 +1,6 @@
 {
-  "name": "AlphaQueb · Portal administrativo y Operaciones",
-  "short_name": "AlphaQueb",
+  "name": "Alphaqueb · Portal administrativo y Operaciones",
+  "short_name": "Alphaqueb",
   "start_url": "/admin-portal/",
   "scope": "/admin-portal/",
   "display": "standalone",

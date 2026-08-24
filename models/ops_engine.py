@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AlphaOps · motor de automatizaciones, agregados de pantallas y KPIs operativos."""
+"""Alphaops · motor de automatizaciones, agregados de pantallas y KPIs operativos."""
 import json
 from datetime import timedelta
 from odoo import api, fields, models, SUPERUSER_ID, _
@@ -12,7 +12,7 @@ ACTIVE_ITEM_DOM = [("state", "not in", list(DONE_STATES))]
 
 class OpsEngine(models.AbstractModel):
     _name = "aq.ops.engine"
-    _description = "AlphaOps: motor"
+    _description = "Alphaops: motor"
 
     # ------------------------------------------------------------ cron
     @api.model

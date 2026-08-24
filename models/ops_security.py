@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AlphaOps · identidad compartida, perfiles operativos, MFA, invitaciones, break-glass."""
+"""Alphaops · identidad compartida, perfiles operativos, MFA, invitaciones, break-glass."""
 import base64
 import hashlib
 import hmac
@@ -55,7 +55,7 @@ class PortalUserOps(models.Model):
     has_admin_access = fields.Boolean(string="Acceso a Administración", default=True, tracking=True,
                                       help="El portal administrativo (contratos, facturación, cobranza, legal, RH…).")
     has_ops_access = fields.Boolean(string="Acceso a Operaciones", default=False, tracking=True,
-                                    help="AlphaOps: proyectos, backlog, calidad, liberaciones, clientes…")
+                                    help="Alphaops: proyectos, backlog, calidad, liberaciones, clientes…")
     ops_role = fields.Selection(OPS_ROLES, string="Perfil en Operaciones", tracking=True)
     organization_id = fields.Many2one("res.partner", string="Organización (tenant)", domain=[("is_company", "=", True)],
                                       help="Para usuarios del cliente y socios: limita todo el contenido a esta organización.")
@@ -114,7 +114,7 @@ class PortalUserOps(models.Model):
         self.ensure_one()
         secret = base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
         self.sudo().write({"mfa_pending_secret": secret})
-        issuer = "AlphaQueb"
+        issuer = "Alphaqueb"
         return {"secret": secret, "otpauth": "otpauth://totp/%s:%s?secret=%s&issuer=%s&digits=6&period=30" % (issuer, self.login, secret, issuer)}
 
     def mfa_confirm_setup(self, code):
@@ -144,7 +144,7 @@ class PortalUserOps(models.Model):
 class BreakGlass(models.Model):
     """Acceso extraordinario con justificación, vigencia y registro."""
     _name = "aq.ops.breakglass"
-    _description = "AlphaOps: acceso extraordinario (break glass)"
+    _description = "Alphaops: acceso extraordinario (break glass)"
     _order = "create_date desc"
 
     user_id = fields.Many2one("aq.portal.user", required=True, string="Usuario")

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""API de Operaciones (AlphaOps). Autorización explícita por recurso y por objeto; acceso denegado por defecto."""
+"""API de Operaciones (Alphaops). Autorización explícita por recurso y por objeto; acceso denegado por defecto."""
 import base64
 import csv
 import io
@@ -552,9 +552,21 @@ class OpsApi(http.Controller):
             return _error(_("Tipo de sesión inválido"), 400)
         start = fields.Datetime.to_datetime(b["start"].replace("T", " ")[:19])
         m, ev = request.env["aq.ops.meeting"].sudo().with_context(portal_user_id=user.id).generate_session(
-            project, stype, start, b.get("duration"), b.get("extra_emails") or [], b.get("agenda"), user)
+            project, stype, start, b.get("duration"), b.get("extra_emails") or [], b.get("agenda"), user,
+            attendees=b.get("attendees"), send_invites=b.get("send_invites", True))
         _log(user, "create", resource="ops:meetings", model="aq.ops.meeting", res_id=m.id, summary=_("Sesión generada: %s") % m.name)
-        return _json({"meeting": {"id": m.id, "name": m.name, "folio": m.folio, "meet": m.location, "event": m.google_event_id, "date": str(m.date)}}, status=201)
+        share = request.env["aq.ops.meeting"].sudo().share_text(m.name, project, start, m.location)
+        return _json({"meeting": {"id": m.id, "name": m.name, "folio": m.folio, "meet": m.location, "event": m.google_event_id, "date": str(m.date),
+                                  "share_text": share, "attendees": b.get("attendees")}}, status=201)
+
+    @portal_route(OPS + "/sessions/invitees", methods=["GET"], app="ops")
+    def session_invitees(self, user):
+        p = request.params
+        project = _get(OPS_RESOURCES["projects"], user, int(p["project_id"]))
+        stype = request.env["aq.ops.session.type"].sudo().browse(int(p["type_id"])).exists()
+        if not stype:
+            return _error(_("Tipo inválido"), 400)
+        return _json({"invitees": request.env["aq.ops.meeting"].sudo().suggested_invitees(project, stype)})
 
     @portal_route(OPS + "/sessions/map", methods=["GET"], app="ops")
     def session_map(self, user):
@@ -593,7 +605,7 @@ class OpsApi(http.Controller):
         rows = [["Folio", "Sesión", "Proyecto", "Fecha", "Tipo", "Estado", "Procesada IA", "Acuerdos", "Doc resumen", "Meet"]]
         for m in request.env["aq.ops.meeting"].sudo().search(_scope_domain(OPS_RESOURCES["meetings"], user), order="project_id, date"):
             rows.append([m.folio or "", m.name, m.project_id.name, str(m.date or ""), m.session_type_id.name or m.meeting_type, m.state, "sí" if m.processed else "no", m.agreement_count, m.summary_doc_url or "", m.location or ""])
-        sid, url = acc.create_sheet("AlphaOps · Mapa de sesiones", rows, acc.drive_folder_id("AlphaOps"))
+        sid, url = acc.create_sheet("Alphaops · Mapa de sesiones", rows, acc.drive_folder_id("Alphaops"))
         _log(user, "action", resource="ops:meetings", summary=_("Mapa de sesiones exportado a Sheets"))
         return _json({"url": url})
 

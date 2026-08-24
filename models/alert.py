@@ -214,5 +214,5 @@ class Alert(models.Model):
                           preheader=_("%d alertas activas · %d críticas · %d urgentes") % (len(alerts), counts["4"], counts["3"]))
         for u in users:
             self.env["mail.mail"].sudo().create({
-                "subject": _("AlphaQueb · %d alertas activas (%d críticas)") % (len(alerts), counts["4"]), "email_to": u.email, "body_html": html,
+                "subject": _("Alphaqueb · %d alertas activas (%d críticas)") % (len(alerts), counts["4"]), "email_to": u.email, "body_html": html,
             }).send()

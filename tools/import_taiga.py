@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Importa exportaciones JSON de Taiga al portal de Operaciones (AlphaOps) a nombre de OdooBot.
+"""Importa exportaciones JSON de Taiga al portal de Operaciones (Alphaops) a nombre de OdooBot.
 
 Uso:  python3 aq_admin_portal/tools/import_taiga.py Datos/*.json [--dry-run]
 Requiere el módulo aq_admin_portal actualizado (método aq.ops.engine.bot_create) y credenciales en .env.
@@ -286,7 +286,7 @@ class Importer:
             if self.find("aq.ops.document", [["project_id", "=", pid], ["name", "=", w["slug"]]]):
                 continue
             self.bot_create("aq.ops.document", {"name": w["slug"].replace("-", " ").title(), "doc_type": "procedimiento", "project_id": pid, "summary": w["content"][:2000], "version": str(w.get("version") or 1)})
-        # 7) estado del proyecto y siguiente acción (regla AlphaOps)
+        # 7) estado del proyecto y siguiente acción (regla Alphaops)
         open_items = [u for u in stories if STATUS_MAP.get(u["status"]) not in ("cerrado",)]
         if open_items and proj.get("stage") == "autorizado":
             nxt = sorted(open_items, key=lambda x: (x.get("due_date") or "9", x["ref"]))[0]

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AlphaOps · solicitudes (embudo único), elementos de trabajo (una sola fuente de verdad), cambios, comentarios, vistas."""
+"""Alphaops · solicitudes (embudo único), elementos de trabajo (una sola fuente de verdad), cambios, comentarios, vistas."""
 import json
 import re
 from datetime import timedelta
@@ -34,7 +34,7 @@ def _tokens(s):
 class OpsRequest(models.Model):
     """5.4 Entrada y clasificación de solicitudes. El cliente nunca crea tareas: crea solicitudes."""
     _name = "aq.ops.request"
-    _description = "AlphaOps: solicitud"
+    _description = "Alphaops: solicitud"
     _inherit = ["aq.portal.mixin", "mail.thread"]
     _order = "create_date desc"
 
@@ -158,7 +158,7 @@ class OpsRequest(models.Model):
 class OpsItem(models.Model):
     """5.5 / 5.6 / 5.9 · Un elemento operativo existe una sola vez; backlog, kanban, calendario, sprint, Gantt y portal del cliente son vistas del mismo objeto."""
     _name = "aq.ops.item"
-    _description = "AlphaOps: elemento de trabajo"
+    _description = "Alphaops: elemento de trabajo"
     _inherit = ["aq.portal.mixin", "mail.thread"]
     _order = "rank, priority desc, id"
     _parent_name = "parent_id"
@@ -251,7 +251,7 @@ class OpsItem(models.Model):
     def _check_acceptance(self):
         for i in self:
             if i.item_type == "entregable" and i.state in ("listo_validacion", "validacion_cliente", "aceptado", "cerrado") and not i.acceptance_criteria:
-                raise ValidationError(_("Regla AlphaOps: ningún entregable avanza a validación ni se cierra sin criterio de aceptación (%s).") % i.name)
+                raise ValidationError(_("Regla Alphaops: ningún entregable avanza a validación ni se cierra sin criterio de aceptación (%s).") % i.name)
             if i.state == "aceptado" and not i.accepted:
                 raise ValidationError(_("'Aceptado' solo se alcanza mediante una validación registrada (aceptación electrónica)."))
 
@@ -327,7 +327,7 @@ class OpsItem(models.Model):
 class OpsChange(models.Model):
     """6 · Solicitud → clasificación → análisis → estimación e impacto → autorización comercial (Administración) → backlog → ejecución → prueba → aceptación → evento facturable."""
     _name = "aq.ops.change"
-    _description = "AlphaOps: cambio de alcance"
+    _description = "Alphaops: cambio de alcance"
     _inherit = ["aq.portal.mixin", "mail.thread"]
     _order = "create_date desc"
 
@@ -355,7 +355,7 @@ class OpsChange(models.Model):
     def action_send_commercial(self):
         for c in self:
             if not (c.impact and c.estimate_hours and c.estimate_approved):
-                raise UserError(_("Regla AlphaOps: ningún cambio de alcance sin impacto, estimación y aprobación operativa antes de la autorización comercial."))
+                raise UserError(_("Regla Alphaops: ningún cambio de alcance sin impacto, estimación y aprobación operativa antes de la autorización comercial."))
             c.write({"state": "pendiente_comercial"})
             self.env["aq.ops.event"].emit("ops", "scope_change_requested", c, {"project": c.project_id.name, "change": c.name, "hours": c.estimate_hours, "impact": c.impact})
             self.env["aq.ops.event"].emit("ops", "estimate_approved", c, {"project": c.project_id.name, "change": c.name, "hours": c.estimate_hours})
@@ -384,7 +384,7 @@ class OpsChange(models.Model):
 class OpsComment(models.Model):
     """5.14 comunicación operativa con menciones @; separa interno vs. visible al cliente."""
     _name = "aq.ops.comment"
-    _description = "AlphaOps: comentario"
+    _description = "Alphaops: comentario"
     _order = "create_date desc"
     body = fields.Text(required=True)
     author_user_id = fields.Many2one("aq.portal.user", string="Autor", readonly=True)
@@ -421,7 +421,7 @@ class OpsComment(models.Model):
 
 class OpsSavedView(models.Model):
     _name = "aq.ops.saved.view"
-    _description = "AlphaOps: vista guardada"
+    _description = "Alphaops: vista guardada"
     name = fields.Char(required=True)
     user_id = fields.Many2one("aq.portal.user", required=True)
     resource = fields.Char(required=True)

@@ -192,7 +192,7 @@ class PortalUser(models.Model):
             else:
                 Brand = self.env["aq.portal.branding"]
                 self.env["mail.mail"].sudo().create({
-                    "subject": _("Restablecer contraseña · Portal AlphaQueb"), "email_to": user.email,
+                    "subject": _("Restablecer contraseña · Portal Alphaqueb"), "email_to": user.email,
                     "body_html": Brand.wrap(_("Acceso al portal"), _("<p>Hola %s,</p><p>Usa el botón para establecer tu contraseña. El enlace vence en 2 horas.</p>") % user.name,
                                             _("Establecer contraseña"), link),
                 }).send()
