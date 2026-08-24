@@ -219,3 +219,8 @@ migración, soporte, regulado, capacitación, cierre/handoff y creativo/catálog
 * **Documento de sesión**: portada con folio, ficha de datos (proyecto, cliente, tipo, fecha, participantes), secciones numeradas (Objetivo, Resumen ejecutivo, Temas tratados, Decisiones, Acuerdos en tabla con responsable y fecha, Pendientes del cliente, Riesgos, Siguientes pasos, Próxima sesión) y cierre institucional.
 * **Entrega**: el documento se guarda en la carpeta de Drive **del proyecto** (`Alphaops/<Proyecto>`, configurable en la ficha del proyecto), se **comparte automáticamente** con los participantes de la sesión y el correo incluye la liga y el **PDF adjunto**.
 * **Biblioteca de prompts** (`aq.ai.prompt`, Operaciones → Configuración): cada proceso de IA usa un prompt editable, versionado y probable desde el portal (con datos de ejemplo), con su nivel de modelo (Flash/Pro/Vision), modo JSON y esquema de salida. El prompt `brand_voice` se antepone a todos y define identidad, tono y límites de la IA para toda la plataforma.
+
+## Folios de sesión (consecutivo por proyecto)
+* El siguiente folio se calcula del **máximo real ya usado** en el proyecto: el campo `folio` de las sesiones y el número embebido en el título (`SESIÓN #n…` o `PO-25002-SAI-Sesión #n`). Nunca reutiliza ni salta un consecutivo ocupado.
+* La sincronización de Calendar lee el folio, el prefijo de serie y la referencia PO desde el título de cada evento y actualiza el proyecto.
+* Sesiones sin folio: acción **"Asignar folios faltantes"** (por proyecto o global) que las integra al consecutivo en orden cronológico, y **"Asignar folio del consecutivo"** en cada sesión. Al procesar una transcripción, si la sesión no tiene folio se le asigna antes de generar el documento.

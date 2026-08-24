@@ -33,6 +33,7 @@ export default function OpsSessions() {
       <div className="hero"><div><div className="tag">Sesiones · nomenclatura y secuencia históricas</div><h1>Sesiones{active ? ` · ${active.name}` : ''}</h1><div className="pulse">{d.sessions.length} sesiones registradas · {d.sessions.filter((s: any) => s.processed).length} procesadas con IA · {d.sessions.filter((s: any) => s.state === 'realizada' && !s.has_transcript && !s.processed).length} históricas sin transcripción (pendiente futuro)</div></div>
         <div className="toolbar" style={{ margin: 0 }}>
           {!external && <button className="btn secondary small" onClick={() => api.post('/ops/sessions/export').then(r => { toast('Mapa exportado', 'ok'); window.open(r.url, '_blank') }).catch((e: any) => toast(e.message, 'err'))}>Descargar mapa (Sheets)</button>}
+          {!external && <button className="btn secondary small" onClick={() => { if (confirm(active ? `¿Asignar folio a las sesiones de ${active.name} que aún no lo tienen?` : '¿Asignar folios faltantes en todos los proyectos?')) api.post('/ops/sessions/assign-folios', active ? { project_id: active.id } : {}).then(r => { toast(`${r.assigned} sesiones integradas al consecutivo`, 'ok'); load() }).catch((e: any) => toast(e.message, 'err')) }}>Asignar folios faltantes</button>}
           {owner && <button className="btn secondary small" onClick={() => { if (confirm('¿Importar el histórico de Calendar (12 meses)? Es idempotente.')) api.post('/ops/sessions/import-history', { months: 12 }).then(r => { toast(`Histórico: ${JSON.stringify(r.stats)}`, 'ok'); load() }).catch((e: any) => toast(e.message, 'err')) }}>Importar histórico</button>}
         </div></div>
       {!external && <SessionWizard types={d.types} projects={d.projects} defaultProject={active} onCreated={(m: any) => { setCreated(m); if (m.meet) navigator.clipboard?.writeText(m.meet).catch(() => {}); toast('Sesión creada · liga copiada', 'ok'); load() }} />}
@@ -55,7 +56,7 @@ export default function OpsSessions() {
         </div>
       )}
       <div className="grid cols-4" style={{ marginBottom: 14 }}>
-        {d.projects.map((p: any) => <div className="kpi" key={p.project}><div className="v">{p.total}</div><div className="l">{p.project} · serie {p.prefix || '—'} #{p.seq}{p.po ? ` · ${p.po}` : ''} · {p.processed} con IA{p.pending_transcript ? ` · ${p.pending_transcript} sin transcripción` : ''}</div></div>)}
+        {d.projects.map((p: any) => <div className="kpi" key={p.project}><div className="v">{p.total}</div><div className="l">{p.project} · serie {p.prefix || '—'} #{p.seq}{p.po ? ` · ${p.po}` : ''} · próximo #{(p.seq || 0) + 1} · {p.processed} con IA{p.pending_transcript ? ` · ${p.pending_transcript} sin transcripción` : ''}{p.sin_folio ? ` · ${p.sin_folio} sin folio` : ''}</div></div>)}
       </div>
       <div className="viewbar"><button className={group === 'proyecto' ? 'on' : ''} onClick={() => setGroup('proyecto')}>Por proyecto</button><button className={group === 'fecha' ? 'on' : ''} onClick={() => setGroup('fecha')}>Cronológico</button></div>
       {grouped.map(([k, rows]) => (
@@ -63,7 +64,7 @@ export default function OpsSessions() {
           <h2>{k} <span className="badge">{rows.length}</span></h2>
           <div className="table-wrap"><table className="list"><thead><tr><th>#</th><th>Sesión</th><th>Fecha</th><th>Tipo</th><th>Estado</th><th>IA</th><th>Seguimiento</th><th>Enlaces</th>{!external && <th></th>}</tr></thead>
             <tbody>{rows.map((s: any) => <tr key={s.id} className="row">
-              <td>{s.folio || '—'}</td>
+              <td>{s.folio ? <b>{s.folio}</b> : <span className="badge warn" title="Sin folio: usa «Asignar folios faltantes»">sin folio</span>}</td>
               <td><Link to={`/ops/r/meetings/${s.id}`}>{s.name}</Link>{s.imported && <span className="badge" style={{ marginLeft: 4 }}>histórico</span>}</td>
               <td>{fmtDate(s.date)}</td><td>{s.type}</td><td><span className={'badge ' + (s.state === 'realizada' || s.state === 'minuta_enviada' ? 'ok' : '')}>{s.state}</span></td>
               <td>{s.processed ? <span className="badge ok">procesada</span> : s.has_transcript ? <span className="badge warn">con transcripción</span> : <span className="badge">sin transcripción</span>}</td>

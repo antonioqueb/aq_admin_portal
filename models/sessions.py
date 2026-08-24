@@ -59,16 +59,55 @@ class OpsProjectSessions(models.Model):
         for p in self:
             p.session_count = self.env["aq.ops.meeting"].search_count([("project_id", "=", p.id)])
 
-    def next_folio(self, stype_name, when):
-        """Folio siguiendo la nomenclatura histórica real."""
+    def folios_usados(self):
+        """Todos los folios ya ocupados por el proyecto: el campo folio y el número embebido en el título."""
         self.ensure_one()
-        n = self.session_seq + 1
+        Meeting = self.env["aq.ops.meeting"].sudo()
+        usados = set()
+        for m in Meeting.search([("project_id", "=", self.id)]):
+            if m.folio:
+                usados.add(m.folio)
+            else:
+                f = Meeting.parse_folio(m.name)[0]
+                if f:
+                    usados.add(f)
+        return usados
+
+    def next_folio_number(self):
+        """Siguiente consecutivo respetando el histórico: continúa del folio más alto ya usado."""
+        self.ensure_one()
+        usados = self.folios_usados()
+        n = max([self.session_seq or 0] + list(usados) or [0]) + 1
+        while n in usados:
+            n += 1
+        return n
+
+    def next_folio(self, stype_name, when, folio=None):
+        """Folio y título con la nomenclatura histórica real del proyecto."""
+        self.ensure_one()
+        n = folio or self.next_folio_number()
         prefix = (self.session_prefix or (self.partner_id.name or "SESION").split()[0].upper())[:12]
         if self.session_po:
             title = "%s-%s-Sesión #%d - %s" % (self.session_po, prefix, n, stype_name)
         else:
             title = "SESIÓN #%d– %s– %s | %s" % (n, prefix, stype_name.upper(), when.strftime("%d/%m/%Y"))
         return n, title
+
+    def action_assign_missing_folios(self):
+        """Integra al consecutivo las sesiones del proyecto que aún no tienen folio (en orden cronológico)."""
+        Meeting = self.env["aq.ops.meeting"].sudo()
+        total = 0
+        for p in self:
+            sin = Meeting.search([("project_id", "=", p.id), ("folio", "in", (False, 0))], order="date asc")
+            for m in sin:
+                f = Meeting.parse_folio(m.name)[0]
+                if f and f not in p.folios_usados():
+                    m.with_context(aq_skip_activity=True).write({"folio": f})
+                else:
+                    m.with_context(aq_skip_activity=True).write({"folio": p.next_folio_number()})
+                total += 1
+            p.with_context(aq_skip_activity=True).write({"session_seq": max([p.session_seq or 0] + list(p.folios_usados() or [0]))})
+        return total
 
 
 class OpsMeetingSession(models.Model):
@@ -141,6 +180,8 @@ class OpsMeetingSession(models.Model):
         project.ensure_one()
         acc = self.env["aq.google.sync"]._account()
         n, title = project.next_folio(stype.name, start_dt)
+        if n in project.folios_usados():
+            n, title = project.next_folio(stype.name, start_dt, folio=project.next_folio_number())
         if attendees is not None:
             emails = set(e.strip().lower() for e in attendees if e and "@" in e)
         else:
@@ -170,7 +211,8 @@ class OpsMeetingSession(models.Model):
                          "member_ids": [(6, 0, invited_members.ids)], "client_partner_ids": [(6, 0, invited_clients.ids)],
                          "agenda": desc or stype.agenda_template, "location": meet, "google_event_id": ev.get("id"), "meet_code": (ev.get("conferenceData", {}).get("conferenceId") or ""),
                          "client_visible": stype.client_visible})
-        project.with_context(aq_skip_activity=True).write({"session_seq": n})
+        if n > (project.session_seq or 0):
+            project.with_context(aq_skip_activity=True).write({"session_seq": n})
         return m, ev
 
     # ------------------------------------------------------------------ post-proceso (transcripción → resumen ejecutivo → Docs → correo → actividades)
@@ -183,6 +225,11 @@ class OpsMeetingSession(models.Model):
             text = re.sub(r"<[^>]+>", " ", m.transcript or m.minutes or m.agenda or "")
             if not text.strip():
                 raise UserError(_("La sesión no tiene transcripción ni minuta."))
+            if m.project_id and not m.folio:
+                try:
+                    m.action_assign_folio()
+                except Exception as e:  # noqa
+                    _logger.info("Folio automático: %s", e)
             data = AI.summarize_meeting(m)  # crea acuerdos propuestos + resumen corto
             exec_json = self.build_exec_summary(m.name, m.project_id.name, m.date, text)
             exec_json = exec_json if exec_json.get("resumen") or exec_json.get("acuerdos") else {"objetivo": "", "resumen": data.get("summary") or text[:800], "temas": [], "decisiones": data.get("decisions") and [d.get("name") for d in data["decisions"]] or [],
@@ -262,6 +309,36 @@ class OpsMeetingSession(models.Model):
             pass
         m.project_id = _P(); m.project_id.name = project_name or "(por identificar)"
         return self._exec_html(m, d)
+
+    @api.model
+    def parse_folio(self, title):
+        """Extrae (folio, prefijo, PO) del título con cualquiera de las nomenclaturas usadas por Alphaqueb."""
+        up = (title or "").upper()
+        m2 = re.search(r"(PO-\d{4,6})-([A-ZÁÉÍÓÚ]+)-SESI[ÓO]N\s*#\s*(\d+)", up)
+        if m2:
+            return int(m2.group(3)), m2.group(2), m2.group(1)
+        m1 = re.search(r"SESI[ÓO]N\s*(?:DE\s+\w+\s+)?#\s*(\d+)\s*[–\-—]*\s*([A-ZÁÉÍÓÚ]+)?", up)
+        if m1:
+            return int(m1.group(1)), (m1.group(2) or "").strip(), None
+        return 0, None, None
+
+    def action_assign_folio(self):
+        """Asigna folio a una sesión que no lo tiene, respetando el consecutivo del proyecto."""
+        for m in self:
+            if m.folio or not m.project_id:
+                continue
+            f = self.parse_folio(m.name)[0]
+            usados = m.project_id.folios_usados()
+            n = f if (f and f not in usados) else m.project_id.next_folio_number()
+            vals = {"folio": n}
+            if not re.search(r"#\s*%d\b" % n, m.name or ""):
+                stype = m.session_type_id.name if m.session_type_id else _("Sesión")
+                _n, titulo = m.project_id.next_folio(stype, m.date or fields.Datetime.now(), folio=n)
+                vals["name"] = titulo
+            m.with_context(aq_skip_activity=True).write(vals)
+            if n > (m.project_id.session_seq or 0):
+                m.project_id.with_context(aq_skip_activity=True).write({"session_seq": n})
+        return True
 
     # ------------------------------------------------------------------ seguimiento automático
     def _find_member(self, name):
@@ -591,13 +668,7 @@ class SessionImport(models.AbstractModel):
                 continue
             start = (ev.get("start") or {}).get("dateTime") or ((ev.get("start") or {}).get("date", "") + "T09:00:00")
             up = title.upper()
-            folio, prefix, po = 0, None, None
-            m1 = re.search(r"SESI[ÓO]N\s*(?:DE\s+\w+\s*)?#(\d+)\s*[–\-]*\s*([A-ZÁÉÍÓÚ]+)?", up)
-            m2 = re.search(r"(PO-\d{4,6})-([A-Z]+)-SESI[ÓO]N\s*#(\d+)", up)
-            if m2:
-                po, prefix, folio = m2.group(1), m2.group(2), int(m2.group(3))
-            elif m1:
-                folio, prefix = int(m1.group(1)), (m1.group(2) or "")
+            folio, prefix, po = Meeting.parse_folio(title)
             hint = self.PREFIX_MAP.get(prefix or "", None)
             if not hint:
                 for k, v in self.PREFIX_MAP.items():

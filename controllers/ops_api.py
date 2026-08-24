@@ -599,9 +599,10 @@ class OpsApi(http.Controller):
                         "type": m.session_type_id.name or dict(m._fields["meeting_type"].selection).get(m.meeting_type), "state": m.state, "processed": m.processed,
                         "has_transcript": bool(m.transcript), "doc": m.summary_doc_url or m.google_doc_url, "meet": m.location, "imported": m.imported,
                         "agreements": m.agreement_count, "followups": m.followups_count, "followups_log": m.followups_log})
-            pr = projects.setdefault(m.project_id.id, {"project": m.project_id.name, "prefix": m.project_id.session_prefix, "seq": m.project_id.session_seq, "po": m.project_id.session_po,
-                                                       "total": 0, "processed": 0, "pending_transcript": 0})
+            pr = projects.setdefault(m.project_id.id, {"project": m.project_id.name, "prefix": m.project_id.session_prefix, "seq": max(m.project_id.session_seq or 0, m.project_id.next_folio_number() - 1),
+                                                       "po": m.project_id.session_po, "total": 0, "processed": 0, "pending_transcript": 0, "sin_folio": 0})
             pr["total"] += 1
+            pr["sin_folio"] += 0 if m.folio else 1
             pr["processed"] += 1 if m.processed else 0
             pr["pending_transcript"] += 1 if (m.state == "realizada" and not m.transcript and not m.processed) else 0
         return _json({"sessions": out, "projects": list(projects.values()), "types": [{"id": t.id, "name": t.name, "duration": t.duration_minutes} for t in request.env["aq.ops.session.type"].sudo().search([])]})
@@ -613,6 +614,21 @@ class OpsApi(http.Controller):
         stats = request.env["aq.ops.session.importer"].sudo().with_context(portal_user_id=user.id).import_history(int(_body().get("months", 12)))
         _log(user, "action", resource="ops:meetings", summary=_("Importación de sesiones históricas: %s") % stats)
         return _json({"stats": stats})
+
+    @portal_route(OPS + "/sessions/assign-folios", methods=["POST"], app="ops")
+    def session_assign_folios(self, user):
+        """Integra al consecutivo las sesiones sin folio (todas o las del proyecto indicado)."""
+        role = _effective_role(user)
+        if role in CLIENT_ROLES or role == "observer":
+            return _error(_("Sin permiso"), 403)
+        b = _body()
+        Project = request.env["aq.ops.project"].sudo()
+        projects = Project.browse(int(b["project_id"])) if b.get("project_id") else Project.search([("stage", "!=", "cerrado")])
+        if b.get("project_id"):
+            _get(OPS_RESOURCES["projects"], user, int(b["project_id"]))
+        total = projects.with_context(portal_user_id=user.id).action_assign_missing_folios()
+        _log(user, "action", resource="ops:meetings", summary=_("Folios asignados: %s") % total)
+        return _json({"assigned": total, "projects": [{"project": p.name, "prefix": p.session_prefix, "seq": p.session_seq, "next": p.next_folio_number()} for p in projects]})
 
     @portal_route(OPS + "/sessions/export", methods=["POST"], app="ops")
     def session_export(self, user):
