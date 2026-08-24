@@ -58,15 +58,16 @@ export default function OpsSessions() {
         </div>
       )}
       <div className="grid cols-4" style={{ marginBottom: 14 }}>
-        {d.projects.map((p: any) => <div className="kpi" key={p.project}><div className="v">{p.total}</div><div className="l">{p.project} · serie {p.prefix || '—'} #{p.seq}{p.po ? ` · ${p.po}` : ''} · próximo interno #{(p.seq || 0) + 1}{p.scheme === 'cliente' ? ` · ${p.po} #${(p.client_seq || 0) + 1}` : ''} · {p.processed} con IA{p.pending_transcript ? ` · ${p.pending_transcript} sin transcripción` : ''}{p.sin_folio ? ` · ${p.sin_folio} sin folio` : ''}</div></div>)}
+        {d.projects.map((p: any) => <div className="kpi" key={p.project}><div className="v">{p.total}</div><div className="l">{p.project} · serie {p.prefix || '—'} #{p.seq}{p.po ? ` · ${p.po}` : ''} · etapa {p.stage} · próximo #{(p.seq || 0) + 1}{p.scheme === 'cliente' ? ` · ${p.po} #${(p.client_seq || 0) + 1}` : ''} · {p.processed} con IA{p.pending_transcript ? ` · ${p.pending_transcript} sin transcripción` : ''}{p.sin_folio ? ` · ${p.sin_folio} sin folio` : ''}</div></div>)}
       </div>
       <div className="viewbar"><button className={group === 'proyecto' ? 'on' : ''} onClick={() => setGroup('proyecto')}>Por proyecto</button><button className={group === 'fecha' ? 'on' : ''} onClick={() => setGroup('fecha')}>Cronológico</button></div>
       {grouped.map(([k, rows]) => (
         <div className="card" key={k}>
           <h2>{k} <span className="badge">{rows.length}</span></h2>
-          <div className="table-wrap"><table className="list"><thead><tr><th>Folio</th><th>Ref. cliente</th><th>Sesión</th><th>Fecha</th><th>Tipo</th><th>Estado</th><th>IA</th><th>Seguimiento</th><th>Enlaces</th>{!external && <th></th>}</tr></thead>
+          <div className="table-wrap"><table className="list"><thead><tr><th>Folio</th><th>Etapa</th><th>Ref. cliente</th><th>Sesión</th><th>Fecha</th><th>Tipo</th><th>Estado</th><th>IA</th><th>Seguimiento</th><th>Enlaces</th>{!external && <th></th>}</tr></thead>
             <tbody>{rows.map((s: any) => <tr key={s.id} className="row">
               <td>{s.folio ? <b>#{s.folio}</b> : <span className="badge warn" title="Sin folio interno: usa «Asignar folios faltantes»">sin folio</span>}</td>
+              <td>{s.stage > 1 ? <span className="badge primary">E{s.stage}</span> : '1'}</td>
               <td>{s.client_folio ? <span className="badge">#{s.client_folio}</span> : '—'}</td>
               <td><Link to={`/ops/r/meetings/${s.id}`}>{s.name}</Link>{s.imported && <span className="badge" style={{ marginLeft: 4 }}>histórico</span>}</td>
               <td>{fmtDate(s.date)}</td><td>{s.type}</td><td><span className={'badge ' + (s.state === 'realizada' || s.state === 'minuta_enviada' ? 'ok' : '')}>{s.state}</span></td>

@@ -39,6 +39,9 @@ class OpsProjectSessions(models.Model):
     folio_scheme = fields.Selection([("interno", "Nuestro consecutivo (SESIÓN #n– SERIE– TIPO)"),
                                      ("cliente", "Consecutivo del cliente (PO-…-Sesión #n)")], default="interno", required=True,
                                     string="Nomenclatura del título", help="Con qué numeración se titula la sesión ante el cliente. El folio interno de Alphaqueb siempre se lleva aparte.")
+    session_stage = fields.Integer(string="Etapa actual del proyecto", default=1,
+                                   help="Cada etapa reinicia el consecutivo de sesiones en #1 (p. ej. SAI etapa 2).")
+    stage_started_on = fields.Date(string="Inicio de la etapa actual")
     client_seq = fields.Integer(string="Última sesión del consecutivo del cliente", default=0,
                                 help="Numeración que lleva el cliente (p. ej. SAI). No es nuestro folio interno.")
     group_email = fields.Char(string="Grupo de correo del cliente", help="Opcional: lista/grupo (p. ej. odoo@cliente.com) que se invita siempre.")
@@ -64,12 +67,15 @@ class OpsProjectSessions(models.Model):
         for p in self:
             p.session_count = self.env["aq.ops.meeting"].search_count([("project_id", "=", p.id)])
 
-    def folios_usados(self, kind="interno"):
-        """Folios ocupados. kind='interno' → consecutivo de Alphaqueb; kind='cliente' → consecutivo del cliente."""
+    def folios_usados(self, kind="interno", stage=None):
+        """Folios ocupados. kind='interno' → consecutivo de Alphaqueb (de la etapa indicada); kind='cliente' → del cliente."""
         self.ensure_one()
         Meeting = self.env["aq.ops.meeting"].sudo()
         usados = set()
-        for m in Meeting.search([("project_id", "=", self.id)]):
+        dom = [("project_id", "=", self.id)]
+        if kind == "interno":
+            dom.append(("stage_no", "=", stage or self.session_stage or 1))
+        for m in Meeting.search(dom):
             info = Meeting.parse_folio(m.name)
             if kind == "cliente":
                 if m.client_folio:
@@ -93,23 +99,35 @@ class OpsProjectSessions(models.Model):
         return n
 
     def next_folio_number(self):
-        """Siguiente consecutivo respetando el histórico: continúa del folio más alto ya usado."""
+        """Siguiente consecutivo de la ETAPA ACTUAL: continúa del folio más alto usado en esa etapa."""
         self.ensure_one()
-        usados = self.folios_usados()
-        n = max([self.session_seq or 0] + list(usados) or [0]) + 1
+        usados = self.folios_usados("interno", self.session_stage or 1)
+        base = (self.session_seq or 0) if (self.session_stage or 1) == 1 or usados else 0
+        n = max([base] + list(usados) or [0]) + 1
         while n in usados:
             n += 1
         return n
+
+    def action_start_new_stage(self):
+        """Inicia una nueva etapa del proyecto: el consecutivo de sesiones vuelve a #1."""
+        for p in self:
+            nueva = (p.session_stage or 1) + 1
+            p.with_context(aq_skip_activity=True).write({"session_stage": nueva, "stage_started_on": fields.Date.context_today(p), "session_seq": 0})
+            p.message_post(body=_("Inicia la etapa %d del proyecto: las sesiones vuelven a numerarse desde #1.") % nueva)
+        return True
 
     def next_folio(self, stype_name, when, folio=None, client_folio=None):
         """Devuelve (folio interno, folio del cliente, título). El título usa la nomenclatura acordada con el cliente."""
         self.ensure_one()
         n = folio or self.next_folio_number()
         prefix = (self.session_prefix or (self.partner_id.name or "SESION").split()[0].upper())[:12]
+        etapa = self.session_stage or 1
         cn = 0
         if self.folio_scheme == "cliente" and self.session_po:
             cn = client_folio or self.next_client_number()
             title = "%s-%s-Sesión #%d - %s" % (self.session_po, prefix, cn, stype_name)
+        elif etapa > 1:
+            title = "SESIÓN #%d ETAPA %d– %s– %s | %s" % (n, etapa, prefix, stype_name.upper(), when.strftime("%d/%m/%Y"))
         else:
             title = "SESIÓN #%d– %s– %s | %s" % (n, prefix, stype_name.upper(), when.strftime("%d/%m/%Y"))
         return n, cn, title
@@ -147,6 +165,7 @@ class OpsMeetingSession(models.Model):
     summary_doc_url = fields.Char(string="Resumen en Google Docs", readonly=True)
     summary_sent = fields.Boolean(readonly=True, string="Resumen enviado por correo")
     imported = fields.Boolean(string="Importada del histórico", readonly=True)
+    stage_no = fields.Integer(string="Etapa del proyecto", default=1, index=True)
     original_title = fields.Char(string="Título original en Calendar", readonly=True)
     duplicate_of_id = fields.Many2one("aq.ops.meeting", string="Duplicado de", readonly=True)
     client_folio = fields.Integer(string="# del consecutivo del cliente", index=True, help="Numeración que lleva el cliente (p. ej. PO-25002-SAI-Sesión #45). No es nuestro folio.")
@@ -236,6 +255,7 @@ class OpsMeetingSession(models.Model):
         invited_members = members.filtered(lambda x: x.email and x.email.lower() in emails)
         invited_clients = project.client_contact_ids.filtered(lambda x: x.email and x.email.lower() in emails)
         m = self.create({"name": title, "project_id": project.id, "date": start_dt, "meeting_type": stype.meeting_type, "session_type_id": stype.id, "folio": n, "client_folio": cn or False,
+                         "stage_no": project.session_stage or 1,
                          "member_ids": [(6, 0, invited_members.ids)], "client_partner_ids": [(6, 0, invited_clients.ids)],
                          "agenda": desc or stype.agenda_template, "location": meet, "google_event_id": ev.get("id"), "meet_code": (ev.get("conferenceData", {}).get("conferenceId") or ""),
                          "client_visible": stype.client_visible})
@@ -788,11 +808,16 @@ class SessionNormalizer(models.AbstractModel):
 
     @api.model
     def detect_project(self, title, attendee_domains=()):
-        """Regla de negocio: SAI manda sobre Creattivo (Creattivo TI es aliado en el proyecto SAI)."""
+        """Reglas de negocio de Alphaqueb:
+        1) Si la sesión es INTERNA con Creattivo o un DAILY de Creattivo → serie de Creattivo TI, sin importar el tema.
+        2) Si la sesión es con SAI (o habla de manifiestos/acopio/PO del proyecto) → serie de SAI.
+        3) Después Stonia/SOM, Hexágonos y, en último caso, Creattivo."""
         up = self.norm(title)
         Project = self.env["aq.ops.project"].sudo()
         def find(hint):
             return Project.search([("name", "ilike", hint)], limit=1)
+        if "CREATTIVO" in up and any(k in up for k in ("INTERNA", "INTERNO", "DAILY", "COORDINACION INTERNA")):
+            return find("Creattivo")
         if any(k in up for k in ("SAI", "MANIFIESTO", "ACOPIO", "CA SAI", "PO 25002")):
             return find("SAI")
         if any(k in up for k in ("STONIA", "STONE PROFIT", "SP 0", "SOMGROUP", "SOM ")):
@@ -822,6 +847,12 @@ class SessionNormalizer(models.AbstractModel):
                 if nums:
                     return int(nums[-1]), kind
         return 0, None
+
+    @api.model
+    def read_stage(self, title):
+        """Detecta la etapa declarada en el título: 'SESIÓN # 1 ETAPA 2 …' → 2."""
+        m = re.search(r"ETAPA\s*(\d+)", (title or "").upper())
+        return int(m.group(1)) if m else 0
 
     @api.model
     def guess_type(self, title):
@@ -862,14 +893,20 @@ class SessionNormalizer(models.AbstractModel):
                 else:
                     vistos[clave] = m
                     unicos.append(m)
-            cambios, n = [], 0
+            cambios, contador, etapa_actual = [], {}, 1
             for m in unicos:
-                n += 1
+                declarada = self.read_stage(m.original_title or m.name)
+                if declarada > etapa_actual:
+                    etapa_actual = declarada          # a partir de aquí, todo pertenece a la nueva etapa
+                etapa = etapa_actual
+                contador[etapa] = contador.get(etapa, 0) + 1
+                n = contador[etapa]
                 num, kind = self.read_numbering(m.original_title or m.name)
                 cf = num if kind == "cliente" else (m.client_folio or 0)
-                cambios.append({"id": m.id, "fecha": str(m.date or "")[:16], "titulo": m.name, "folio_actual": m.folio or 0, "folio_nuevo": n, "client": cf})
+                cambios.append({"id": m.id, "fecha": str(m.date or "")[:16], "titulo": m.name, "folio_actual": m.folio or 0,
+                                "folio_nuevo": n, "etapa": etapa, "client": cf})
                 if apply:
-                    vals = {"folio": n, "original_title": m.original_title or m.name}
+                    vals = {"folio": n, "stage_no": etapa, "original_title": m.original_title or m.name}
                     if cf and cf != m.client_folio:
                         vals["client_folio"] = cf
                     if not m.session_type_id:
@@ -877,6 +914,7 @@ class SessionNormalizer(models.AbstractModel):
                         if t:
                             vals["session_type_id"] = t.id
                     m.with_context(aq_skip_activity=True).write(vals)
+            n = contador.get(etapa_actual, 0)
             if apply:
                 for d in duplicadas:
                     principal = None
@@ -885,13 +923,17 @@ class SessionNormalizer(models.AbstractModel):
                             principal = u; break
                     d.with_context(aq_skip_activity=True).write({"active": False, "duplicate_of_id": principal.id if principal else False})
                 cli = p.folios_usados("cliente")
-                vals = {"session_seq": n}
+                vals = {"session_seq": n, "session_stage": etapa_actual}
+                if etapa_actual > 1 and not p.stage_started_on:
+                    primera = next((c for c in cambios if c["etapa"] == etapa_actual), None)
+                    if primera:
+                        vals["stage_started_on"] = primera["fecha"][:10]
                 if cli:
                     vals["client_seq"] = max(cli)
                     vals["folio_scheme"] = "cliente" if p.session_po else p.folio_scheme
                 p.with_context(aq_skip_activity=True).write(vals)
                 self.env.cr.commit()
             reporte.append({"project_id": p.id, "project": p.name, "prefijo": p.session_prefix, "total_previo": len(sesiones), "duplicadas": len(duplicadas),
-                            "sesiones": n, "proximo_folio": n + 1, "consecutivo_cliente": max(p.folios_usados("cliente") or [0]) or None,
+                            "etapa": etapa_actual, "por_etapa": contador, "sesiones": sum(contador.values()), "sesiones_etapa": n, "proximo_folio": n + 1, "consecutivo_cliente": max(p.folios_usados("cliente") or [0]) or None,
                             "muestra": cambios[:5] + ([{"...": "..."}] if len(cambios) > 5 else []) + cambios[-3:] if len(cambios) > 8 else cambios})
         return {"aplicado": apply, "proyectos": reporte}

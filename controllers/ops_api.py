@@ -595,15 +595,17 @@ class OpsApi(http.Controller):
         projects = {}
         out = []
         for m in rows:
-            out.append({"id": m.id, "folio": m.folio or None, "client_folio": m.client_folio or None, "name": m.name, "project": m.project_id.name, "project_id": m.project_id.id, "date": str(m.date or ""),
+            out.append({"id": m.id, "folio": m.folio or None, "stage": m.stage_no or 1, "client_folio": m.client_folio or None, "name": m.name, "project": m.project_id.name, "project_id": m.project_id.id, "date": str(m.date or ""),
                         "type": m.session_type_id.name or dict(m._fields["meeting_type"].selection).get(m.meeting_type), "state": m.state, "processed": m.processed,
                         "has_transcript": bool(m.transcript), "doc": m.summary_doc_url or m.google_doc_url, "meet": m.location, "imported": m.imported,
                         "agreements": m.agreement_count, "followups": m.followups_count, "followups_log": m.followups_log})
             pr = projects.setdefault(m.project_id.id, {"project": m.project_id.name, "prefix": m.project_id.session_prefix, "seq": max(m.project_id.session_seq or 0, m.project_id.next_folio_number() - 1),
                                                        "po": m.project_id.session_po, "scheme": m.project_id.folio_scheme, "client_seq": m.project_id.client_seq,
+                                                       "stage": m.project_id.session_stage or 1,
                                                        "total": 0, "processed": 0, "pending_transcript": 0, "sin_folio": 0})
             pr["total"] += 1
             pr["sin_folio"] += 0 if m.folio else 1
+            pr["seq"] = max(pr["seq"], m.folio or 0) if (m.stage_no or 1) == (m.project_id.session_stage or 1) else pr["seq"]
             pr["processed"] += 1 if m.processed else 0
             pr["pending_transcript"] += 1 if (m.state == "realizada" and not m.transcript and not m.processed) else 0
         return _json({"sessions": out, "projects": list(projects.values()), "types": [{"id": t.id, "name": t.name, "duration": t.duration_minutes} for t in request.env["aq.ops.session.type"].sudo().search([])]})

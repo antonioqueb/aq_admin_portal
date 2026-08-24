@@ -233,4 +233,8 @@ El histórico real convivía con ocho nomenclaturas (`#9 | fecha – tema`, `Ses
 2. **Cuenta las sesiones reales** de cada proyecto y las **renumera 1…N en orden cronológico** (folio interno de Alphaqueb), conservando el **título original** de Calendar.
 3. Reconoce el tipo de sesión por el título (Daily Sync, Retrospectiva, Capacitación, Demo/Validación, Levantamiento…) y respeta el **consecutivo del cliente** (PO) sin tocarlo.
 4. Deja el proyecto listo para continuar: `session_seq = N` y próximo folio `N+1` con la nomenclatura profesional.
-La detección de proyecto sigue la regla real de negocio: SAI manda sobre Creattivo (Creattivo TI es aliado dentro del proyecto SAI), luego Stonia/SOM, Hexágonos y Creattivo TI; los prospectos (AXE, CEN Systems) se omiten.
+**Reglas de negocio del recuento**
+1. Si la sesión es **interna con Creattivo o un daily de Creattivo**, cuenta en la serie de **Creattivo TI** sin importar el tema (aunque hable de SAI o Stonia).
+2. Si la sesión es **con SAI** (o menciona manifiestos, acopio o su PO), cuenta en la serie de **SAI**.
+3. Después Stonia/SOM, Hexágonos y, en último caso, Creattivo. Los prospectos (AXE, CEN Systems) se omiten.
+4. **Etapas**: cuando el título declara `ETAPA n` (SAI etapa 2, julio 2026), el consecutivo **reinicia en #1** y todas las sesiones posteriores pertenecen a esa etapa. Cada proyecto tiene `session_stage`, las sesiones guardan `stage_no` y el generador titula `SESIÓN #n ETAPA 2– SERIE– TIPO | fecha`. La acción **"Iniciar nueva etapa"** en el proyecto reinicia el consecutivo cuando arranque una etapa nueva.

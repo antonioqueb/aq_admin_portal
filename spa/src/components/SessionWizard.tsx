@@ -40,7 +40,9 @@ export default function SessionWizard({ types, projects, defaultProject, onCreat
     if (!p || !type) return ''
     return p.scheme === 'cliente' && p.po
       ? `${p.po}-${p.prefix || ''}-Sesión #${(p.client_seq || 0) + 1} - ${type.name}`
-      : `SESIÓN #${(p.seq || 0) + 1}– ${p.prefix || '…'}– ${type.name.toUpperCase()} | ${date.split('-').reverse().join('/')}`
+      : (p.stage > 1
+        ? `SESIÓN #${(p.seq || 0) + 1} ETAPA ${p.stage}– ${p.prefix || '…'}– ${type.name.toUpperCase()} | ${date.split('-').reverse().join('/')}`
+        : `SESIÓN #${(p.seq || 0) + 1}– ${p.prefix || '…'}– ${type.name.toUpperCase()} | ${date.split('-').reverse().join('/')}`)
   }, [projects, project, type, date])
 
   const genBrief = async () => {
