@@ -403,9 +403,15 @@ class GoogleMessage(models.Model):
 
     def _auto_convert(self):
         """Convierte el mensaje según su categoría; si falla, queda en la bandeja con el motivo visible.
-        Reintentado por el cron hasta 3 veces (aq.google.sync.cron_autoprocess)."""
+        Reintentado por el cron hasta 3 veces (aq.google.sync.cron_autoprocess).
+        Lo fechado antes del corte de automatización NO se procesa solo (evita resúmenes de sesiones pasadas)."""
+        since = self.env["aq.google.sync"]._auto_since()
         for m in self:
             if m.state != "nuevo":
+                continue
+            if m.date and m.date < since:
+                if not m.ai_action:
+                    m.write({"ai_action": _("Anterior al inicio de la automatización; use las acciones de la ficha si desea procesarlo.")})
                 continue
             m.write({"auto_attempts": m.auto_attempts + 1})
             action = self.AUTO_ACTIONS.get(m.category)
@@ -581,12 +587,29 @@ class GoogleSync(models.AbstractModel):
         return True
 
     @api.model
+    def _auto_since(self):
+        """Fecha de corte de la automatización: solo se procesa automáticamente lo fechado a partir de aquí.
+        Se fija sola la primera vez que corre (el 'hoy' del arranque); editable en Parámetros del sistema
+        (aq_google.auto_process_since). Lo anterior queda en la bandeja para proceso manual, sin correos."""
+        icp = self.env["ir.config_parameter"].sudo()
+        val = icp.get_param("aq_google.auto_process_since")
+        if not val:
+            val = fields.Datetime.to_string(fields.Datetime.now())
+            icp.set_param("aq_google.auto_process_since", val)
+        try:
+            return fields.Datetime.to_datetime(val)
+        except Exception:  # noqa
+            return fields.Datetime.now()
+
+    @api.model
     def cron_autoprocess(self):
-        """Red de seguridad: reintenta los mensajes que quedaron en la bandeja sin procesar (máx. 3 intentos por mensaje)."""
+        """Red de seguridad: reintenta los mensajes que quedaron en la bandeja sin procesar (máx. 3 intentos por mensaje).
+        Nunca procesa nada anterior a la fecha de corte de la automatización."""
         if self.env["ir.config_parameter"].sudo().get_param("aq_google.auto_convert", "1") != "1":
             return 0
+        start = max(self._auto_since(), fields.Datetime.now() - timedelta(days=14))
         pend = self.env["aq.google.message"].sudo().search([("state", "=", "nuevo"), ("auto_attempts", "<", 3),
-                                                            ("date", ">=", fields.Datetime.now() - timedelta(days=14))], limit=50)
+                                                            ("date", ">=", start)], limit=50)
         pend._auto_convert()
         self.env.cr.commit()
         return len(pend)
@@ -674,6 +697,9 @@ class GoogleSync(models.AbstractModel):
         subj = (msg.get("subject") or "").lower()
         if any(s in sender for s in MEET_SENDERS) or subj.startswith(("notes:", "notas:", "notas de la reunión", "notes from", "resumen de la reunión", "transcripción")):
             rec.write({"app": "ops", "category": "meeting_notes", "routed_by": "system"})
+            if rec.date and rec.date < self._auto_since():
+                rec.write({"ai_action": _("Sesión anterior al inicio de la automatización; use 'Procesar transcripción' si desea el resumen.")})
+                return
             try:
                 rec.action_process_notes()
             except Exception as e:  # noqa
@@ -832,16 +858,23 @@ class GoogleSync(models.AbstractModel):
             text = acc.meet_transcript_text(rec["name"])
             if not text.strip():
                 continue
+            started = fields.Datetime.to_datetime(start) if start else fields.Datetime.now()
+            is_old = started < self._auto_since()
             if not m:
                 msg = self.env["aq.google.message"].sudo().create({"account_id": acc.id, "source": "meet", "external_id": rec["name"], "subject": _("Transcripción de Meet %s") % start, "body": text[:20000],
-                                                                   "app": "ops", "category": "meeting_notes", "routed_by": "system", "date": fields.Datetime.to_datetime(start) if start else fields.Datetime.now()})
+                                                                   "app": "ops", "category": "meeting_notes", "routed_by": "system", "date": started})
                 msg._detect()
+                if is_old:
+                    msg.write({"ai_action": _("Sesión anterior al inicio de la automatización; use 'Procesar transcripción' si desea el resumen.")})
+                    continue
                 try:
                     msg.action_process_notes()
                 except Exception as e:  # noqa
                     _logger.info("Meet standalone: %s", e)
                 continue
             m.with_context(aq_skip_activity=True).write({"transcript": text, "meet_record": rec["name"], "state": "realizada" if m.state == "programada" else m.state})
+            if is_old:  # la transcripción se conserva como evidencia, pero sin proceso IA ni correos retroactivos
+                continue
             try:
                 if not m.session_type_id or m.session_type_id.auto_process:
                     m.process_with_ai()
@@ -871,6 +904,10 @@ class GoogleSync(models.AbstractModel):
             rec = Msg.create({"account_id": acc.id, "source": "drive", "external_id": f["id"], "subject": f["name"][:250], "body": (text or "")[:30000], "link": f.get("webViewLink"),
                               "date": fields.Datetime.to_datetime(f.get("modifiedTime", "")[:19].replace("T", " ")) if f.get("modifiedTime") else fields.Datetime.now(), "app": "ops", "category": "meeting_notes", "routed_by": "system"})
             rec._detect()
+            if rec.date and rec.date < self._auto_since():
+                rec.write({"ai_action": _("Sesión anterior al inicio de la automatización; use 'Procesar transcripción' si desea el resumen.")})
+                n += 1
+                continue
             try:
                 rec.action_process_notes()
             except Exception as e:  # noqa
