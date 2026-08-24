@@ -72,9 +72,17 @@ class GoogleApi(http.Controller):
     def sync(self, user):
         if not (user.role in ("direccion", "coordinacion") or user.ops_role in ("platform_owner", "ops_director", "pm")):
             return _error(_("Sin permiso"), 403)
+        try:
+            days = int((_body() or {}).get("days") or 0) or None
+        except Exception:
+            days = None
+        if days:
+            days = min(days, 90)
+        Sync = request.env["aq.google.sync"].sudo().with_context(portal_user_id=user.id, aq_gmail_days=days)
         for a in request.env["aq.google.account"].sudo().search([("state", "in", ("conectada", "error"))]):
-            request.env["aq.google.sync"].sudo().with_context(portal_user_id=user.id).sync_account(a)
-        _log(user, "action", resource="google", summary=_("Sincronización manual de Google"))
+            Sync.sync_account(a)
+        Sync.cron_autoprocess()
+        _log(user, "action", resource="google", summary=_("Sincronización manual de Google") + (_(" (últimos %d días)") % days if days else ""))
         return _json(self._status())
 
     @portal_route(API + "/google/accounts/<int:aid>", methods=["PUT"], app=None)

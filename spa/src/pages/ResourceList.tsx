@@ -4,7 +4,7 @@ import { useApp } from '../context'
 import RecordTable from '../components/RecordTable'
 import Many2one from '../components/Many2one'
 import { useActiveProject } from '../project'
-import { ops } from '../api'
+import { api, ops } from '../api'
 
 export default function ResourceList() {
   const { resource = '' } = useParams()
@@ -16,6 +16,7 @@ export default function ResourceList() {
   const projField = app === 'ops' && res ? (resource === 'projects' ? 'id' : res.fields.project_id ? 'project_id' : res.fields.ops_project_id ? 'ops_project_id' : res.tabs?.length === 0 && res.fields.meeting_id ? 'meeting_id.project_id' : res.fields.case_id ? 'case_id.project_id' : null) : null
   const [records, setRecords] = useState<any[]>([])
   const [total, setTotal] = useState(0)
+  const [syncing, setSyncing] = useState(false)
   const [search, setSearch] = useState(sp.get('q') || '')
   const [order, setOrder] = useState('')
   const [offset, setOffset] = useState(0)
@@ -70,6 +71,10 @@ export default function ResourceList() {
       <div className="toolbar">
         <div><h1>{res.label}</h1><div style={{ color: 'var(--muted)', fontSize: 12 }}>{total} registros{projField && active && <> · filtrado por <b>{active.name}</b></>}{projField && !active && app === 'ops' && ' · todos los proyectos'}</div></div>
         <span className="spacer" />
+        {resource === 'google_inbox' && <>
+          <button className="btn secondary" disabled={syncing} onClick={async () => { setSyncing(true); try { await api.post('/google/sync'); toast('Sincronización completada', 'ok'); load() } catch (e: any) { toast(e.message, 'err') } finally { setSyncing(false) } }}>{syncing ? 'Sincronizando…' : 'Sincronizar correo'}</button>
+          <button className="btn secondary" disabled={syncing} title="Trae y procesa el correo de los últimos 30 días" onClick={async () => { setSyncing(true); try { await api.post('/google/sync', { days: 30 }); toast('Correo de los últimos 30 días sincronizado', 'ok'); load() } catch (e: any) { toast(e.message, 'err') } finally { setSyncing(false) } }}>Traer 30 días</button>
+        </>}
         <button className="btn secondary" onClick={exportCsv}>Exportar CSV</button>
         {res.can.create && <button className="btn" onClick={() => nav(`${base}/r/${resource}/new` + (app === 'ops' && active && res.fields.project_id ? `?d.project_id=${active.id}&n.project_id=${encodeURIComponent(active.name)}` : ''))}>+ Nuevo {res.singular.toLowerCase()}</button>}
       </div>

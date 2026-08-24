@@ -249,7 +249,7 @@ OPS_RESOURCES = {
         "list": ["date", "source", "subject", "category", "project_id", "state", "summary_doc_url", "res_label"],
         "filters": ["state", "category", "source", "routed_by", "project_id"],
         "essential": ["subject", "project_id", "date", "source", "state", "summary_doc_url", "source_doc_url", "exec_summary"],
-        "groups": [{"title": "Mensaje", "fields": ["subject", "sender", "recipients", "date", "source", "link", "attachment_names"]},
+        "groups": [{"title": "Mensaje", "fields": ["subject", "sender", "recipients", "date", "source", "link", "attachment_names", "attachments_text"]},
                    {"title": "Enrutamiento", "fields": ["app", "category", "routed_by", "rule_id", "partner_id", "project_id", "ai_summary", "ai_action", "state", "res_label"]},
                    {"title": "Resumen ejecutivo", "fields": ["exec_summary", "summary_doc_url", "source_doc_url"]},
                    {"title": "Transcripción", "fields": ["transcript"]},

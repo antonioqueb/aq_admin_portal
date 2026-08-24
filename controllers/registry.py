@@ -552,7 +552,7 @@ RESOURCES = {
         "domain": [("app", "=", "admin")],
         "list": ["date", "source", "subject", "sender", "category", "partner_id", "routed_by", "state", "res_label"],
         "filters": ["state", "category", "source", "routed_by", "partner_id"],
-        "groups": [{"title": "Mensaje", "fields": ["subject", "sender", "recipients", "date", "source", "link", "attachment_names", "labels"]},
+        "groups": [{"title": "Mensaje", "fields": ["subject", "sender", "recipients", "date", "source", "link", "attachment_names", "attachments_text", "labels"]},
                    {"title": "Enrutamiento", "fields": ["app", "category", "routed_by", "rule_id", "partner_id", "project_id", "ai_summary", "ai_action", "state", "res_label"]},
                    {"title": "Contenido", "fields": ["body"]}],
         "actions": [{"name": "action_to_admin_agreement", "label": "→ Pendiente / acuerdo", "roles": ROLE_WRITE}, {"name": "action_to_admin_receivable", "label": "→ Seguimiento de cobranza", "roles": ROLE_WRITE},

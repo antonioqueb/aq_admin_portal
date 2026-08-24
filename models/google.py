@@ -22,6 +22,29 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.modify", "https://www.googleapi
 MEET_SENDERS = ("meet-recordings-noreply@google.com", "gemini-noreply@google.com", "calendar-notification@google.com")
 
 
+def _extract_attachment_text(filename, raw):
+    """Texto legible de un adjunto (PDF, texto plano o DOCX); cadena vacía si no se puede extraer."""
+    name = (filename or "").lower()
+    try:
+        if name.endswith(".pdf"):
+            try:
+                import io
+                from pdfminer.high_level import extract_text
+                return extract_text(io.BytesIO(raw)) or ""
+            except ImportError:
+                return ""
+        if name.endswith((".txt", ".csv", ".md", ".json", ".xml", ".htm", ".html")):
+            return raw.decode("utf-8", errors="ignore")
+        if name.endswith(".docx"):
+            import io
+            import zipfile
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                return re.sub(r"<[^>]+>", " ", z.read("word/document.xml").decode("utf-8", errors="ignore"))
+    except Exception as e:  # noqa
+        _logger.info("extraer adjunto %s: %s", filename, e)
+    return ""
+
+
 def _cfg(env):
     icp = env["ir.config_parameter"].sudo()
     return {"client_id": os.environ.get("GOOGLE_CLIENT_ID") or icp.get_param("GOOGLE_CLIENT_ID") or icp.get_param("aq_google.client_id") or "",
@@ -143,6 +166,23 @@ class GoogleAccount(models.Model):
 
     def gmail_get(self, mid):
         return self.get("https://gmail.googleapis.com/gmail/v1/users/me/messages/%s" % mid, {"format": "full"})
+
+    @staticmethod
+    def gmail_attachment_parts(payload):
+        """Lista recursiva de adjuntos del mensaje: [{filename, id, mime, size}]."""
+        out = []
+        def walk(p):
+            if p.get("filename") and (p.get("body") or {}).get("attachmentId"):
+                out.append({"filename": p["filename"], "id": p["body"]["attachmentId"], "mime": p.get("mimeType"), "size": (p.get("body") or {}).get("size", 0)})
+            for sp in p.get("parts", []) or []:
+                walk(sp)
+        walk(payload or {})
+        return out
+
+    def gmail_attachment(self, mid, att_id):
+        r = self.get("https://gmail.googleapis.com/gmail/v1/users/me/messages/%s/attachments/%s" % (mid, att_id))
+        data = r.get("data") or ""
+        return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
 
     def gmail_label_id(self, name):
         labels = self.get("https://gmail.googleapis.com/gmail/v1/users/me/labels").get("labels", [])
@@ -331,6 +371,8 @@ class GoogleMessage(models.Model):
     res_id = fields.Integer(string="Convertido en (id)")
     res_label = fields.Char(string="Convertido en")
     attachment_names = fields.Char()
+    attachments_text = fields.Text(string="Contenido de adjuntos (extraído)", readonly=True)
+    auto_attempts = fields.Integer(string="Intentos de proceso automático", default=0)
 
     # --- detección de cliente/proyecto por dominios de correo y palabras
     def _detect(self):
@@ -354,6 +396,38 @@ class GoogleMessage(models.Model):
                     if key and len(key) > 3 and key in text:
                         proj = p; break
             m.write({"partner_id": partner.id if partner else (proj.partner_id.id if proj else False), "project_id": proj.id if proj else False})
+
+    # --- proceso automático: cada categoría sabe en qué convertirse sin intervención humana
+    AUTO_ACTIONS = {"meeting_notes": "action_process_notes", "request": "action_to_ops_request", "incident": "action_to_ops_incident",
+                    "agreement": "action_to_admin_agreement", "invoice": "action_to_admin_receivable", "payable": "action_to_admin_payable"}
+
+    def _auto_convert(self):
+        """Convierte el mensaje según su categoría; si falla, queda en la bandeja con el motivo visible.
+        Reintentado por el cron hasta 3 veces (aq.google.sync.cron_autoprocess)."""
+        for m in self:
+            if m.state != "nuevo":
+                continue
+            m.write({"auto_attempts": m.auto_attempts + 1})
+            action = self.AUTO_ACTIONS.get(m.category)
+            if m.category == "incident" and not m.project_id:
+                action = "action_to_ops_request"  # sin proyecto no puede haber incidente: entra como solicitud
+            if not action:
+                continue
+            try:
+                with self.env.cr.savepoint():
+                    getattr(m, action)()
+                if (m.ai_action or "").startswith("Proceso automático pendiente"):
+                    m.write({"ai_action": False})
+            except Exception as e:  # noqa
+                if m.category == "invoice":
+                    try:  # sin cuenta por cobrar relacionada: al menos queda como pendiente de Administración
+                        with self.env.cr.savepoint():
+                            m.action_to_admin_agreement()
+                        continue
+                    except Exception:  # noqa
+                        pass
+                m.write({"ai_action": _("Proceso automático pendiente (%d/3): %s") % (m.auto_attempts, str(e)[:160])})
+        return True
 
     # --- conversiones
     def action_ignore(self):
@@ -401,6 +475,8 @@ class GoogleMessage(models.Model):
                     return t
             except Exception as e:  # noqa
                 _logger.info("doc_text %s: %s", did, e)
+        if self.attachments_text:
+            body += "\n\n[Contenido de adjuntos]\n" + self.attachments_text
         return body
 
     def action_process_notes(self):
@@ -498,7 +574,22 @@ class GoogleSync(models.AbstractModel):
             except Exception as e:  # noqa
                 _logger.exception("Google sync %s", acc.email)
                 acc.write({"state": "error", "last_error": str(e)[:500]})
+        try:
+            self.cron_autoprocess()
+        except Exception:  # noqa
+            _logger.exception("Google autoprocess")
         return True
+
+    @api.model
+    def cron_autoprocess(self):
+        """Red de seguridad: reintenta los mensajes que quedaron en la bandeja sin procesar (máx. 3 intentos por mensaje)."""
+        if self.env["ir.config_parameter"].sudo().get_param("aq_google.auto_convert", "1") != "1":
+            return 0
+        pend = self.env["aq.google.message"].sudo().search([("state", "=", "nuevo"), ("auto_attempts", "<", 3),
+                                                            ("date", ">=", fields.Datetime.now() - timedelta(days=14))], limit=50)
+        pend._auto_convert()
+        self.env.cr.commit()
+        return len(pend)
 
     @api.model
     def sync_account(self, acc, stages=None):
@@ -523,11 +614,16 @@ class GoogleSync(models.AbstractModel):
     def sync_gmail(self, acc):
         Msg = self.env["aq.google.message"].sudo()
         label_done = acc.gmail_label_id(acc.gmail_label_done) if acc.gmail_label_done else None
-        q = acc.gmail_query or "newer_than:3d"
+        days = self.env.context.get("aq_gmail_days")
+        limit = int(self.env["ir.config_parameter"].sudo().get_param("aq_google.gmail_batch", "25"))
+        if days:
+            q = "newer_than:%dd -in:spam -in:trash" % int(days)
+            limit = max(limit, 200)
+        else:
+            q = acc.gmail_query or "newer_than:3d"
         if acc.gmail_label_done:
             q += ' -label:"%s"' % acc.gmail_label_done
         n = 0
-        limit = int(self.env["ir.config_parameter"].sudo().get_param("aq_google.gmail_batch", "25"))
         for ref in acc.gmail_list(q, max_results=limit):
             if n >= limit:
                 break
@@ -536,13 +632,30 @@ class GoogleSync(models.AbstractModel):
             full = acc.gmail_get(ref["id"])
             headers = {h["name"].lower(): h["value"] for h in full.get("payload", {}).get("headers", [])}
             body = acc.gmail_text(full.get("payload", {}))
-            atts = [p.get("filename") for p in (full.get("payload", {}).get("parts") or []) if p.get("filename")]
+            parts = acc.gmail_attachment_parts(full.get("payload", {}))
             msg = {"from": headers.get("from", ""), "to": headers.get("to", ""), "subject": headers.get("subject", "(sin asunto)"), "body": body, "labels": full.get("labelIds", [])}
             mdate = datetime.datetime.utcfromtimestamp(int(full["internalDate"]) // 1000) if full.get("internalDate") else fields.Datetime.now()
             rec = Msg.create({"account_id": acc.id, "source": "gmail", "external_id": ref["id"], "thread_id": full.get("threadId"), "subject": msg["subject"][:250], "sender": msg["from"][:250],
                               "recipients": msg["to"][:500], "date": mdate,
-                              "snippet": (full.get("snippet") or "")[:300], "body": body[:20000], "labels": ",".join(full.get("labelIds", [])), "attachment_names": ", ".join(atts)[:500],
+                              "snippet": (full.get("snippet") or "")[:300], "body": body[:20000], "labels": ",".join(full.get("labelIds", [])),
+                              "attachment_names": ", ".join(p["filename"] for p in parts)[:500],
                               "link": "https://mail.google.com/mail/u/0/#all/%s" % full.get("threadId")})
+            # adjuntos: se guardan en el mensaje y su texto se extrae para el análisis
+            texts = []
+            for p in parts[:10]:
+                if (p.get("size") or 0) > 15 * 1024 * 1024:
+                    continue
+                try:
+                    raw = acc.gmail_attachment(ref["id"], p["id"])
+                    self.env["ir.attachment"].sudo().create({"name": p["filename"], "raw": raw, "mimetype": p.get("mime"), "res_model": rec._name, "res_id": rec.id})
+                    t = _extract_attachment_text(p["filename"], raw)
+                    if t and t.strip():
+                        texts.append("· %s:\n%s" % (p["filename"], t.strip()[:8000]))
+                except Exception as e:  # noqa
+                    _logger.info("adjunto %s: %s", p.get("filename"), e)
+            if texts:
+                rec.write({"attachments_text": "\n\n".join(texts)[:60000]})
+                msg["body"] = (msg["body"] or "") + "\n\n[Contenido de adjuntos]\n" + "\n\n".join(texts)[:6000]
             rec._detect()
             self.route(rec, msg)
             if label_done:
@@ -554,7 +667,9 @@ class GoogleSync(models.AbstractModel):
 
     @api.model
     def route(self, rec, msg):
-        """1) Notas de Meet → reunión; 2) reglas; 3) copiloto (DeepSeek) decide app y categoría; 4) conversión automática si la regla lo pide."""
+        """1) Notas de Meet → reunión; 2) reglas; 3) copiloto (DeepSeek) decide app y categoría; 4) conversión automática
+        de toda categoría accionable (aq_google.auto_convert=1, activado por defecto)."""
+        auto_all = self.env["ir.config_parameter"].sudo().get_param("aq_google.auto_convert", "1") == "1"
         sender = (msg.get("from") or "").lower()
         subj = (msg.get("subject") or "").lower()
         if any(s in sender for s in MEET_SENDERS) or subj.startswith(("notes:", "notas:", "notas de la reunión", "notes from", "resumen de la reunión", "transcripción")):
@@ -573,12 +688,8 @@ class GoogleSync(models.AbstractModel):
                 rec.write(vals)
                 if rule.target_type == "ignore":
                     rec.write({"state": "ignorado"})
-                elif rule.auto_convert:
-                    try:
-                        getattr(rec, {"meeting_notes": "action_to_ops_meeting", "ops_request": "action_to_ops_request", "ops_incident": "action_to_ops_incident", "admin_agreement": "action_to_admin_agreement",
-                                      "admin_receivable": "action_to_admin_receivable", "admin_payable": "action_to_admin_payable"}[rule.target_type])()
-                    except Exception as e:  # noqa
-                        rec.write({"ai_action": _("Conversión automática falló: %s") % e})
+                elif rule.target_type != "inbox" and (rule.auto_convert or auto_all):
+                    rec._auto_convert()
                 return
         # copiloto
         AI = self.env["aq.ops.ai"].sudo()
@@ -589,6 +700,8 @@ class GoogleSync(models.AbstractModel):
                 rec.write({"app": lib.get("app") if lib.get("app") in ("admin", "ops") else "ops",
                            "category": lib.get("category") if lib.get("category") in dict(rec._fields["category"].selection) else "other",
                            "ai_summary": lib.get("summary"), "ai_action": lib.get("action"), "routed_by": "ai"})
+                if auto_all:
+                    rec._auto_convert()
                 return
             out = AI.chat("Clasifica este correo para Alphaqueb Consulting (consultora Odoo). Responde JSON {\"app\": \"admin\"|\"ops\", \"category\": meeting_notes|request|incident|invoice|payable|legal|hr|prospect|agreement|info|other, "
                           "\"summary\": str (2 líneas), \"action\": str (acción sugerida, una línea)}. Administración = contratos, facturación, cobranza, pagos, legal, RH, prospectos. "
@@ -597,6 +710,8 @@ class GoogleSync(models.AbstractModel):
         if d:
             rec.write({"app": d.get("app") if d.get("app") in ("admin", "ops") else "ops", "category": d.get("category") if d.get("category") in dict(rec._fields["category"].selection) else "other",
                        "ai_summary": d.get("summary"), "ai_action": d.get("action"), "routed_by": "ai"})
+            if auto_all:
+                rec._auto_convert()
             return
         # heurística sin IA
         text = subj + " " + (msg.get("body") or "")[:2000].lower()
@@ -607,6 +722,8 @@ class GoogleSync(models.AbstractModel):
         elif re.search(r"error|falla|no funciona|urgente|caído|incidente", text): cat, app = "incident", "ops"
         elif re.search(r"solicit|requerimiento|necesitamos|favor de", text): cat, app = "request", "ops"
         rec.write({"app": app, "category": cat, "routed_by": "system"})
+        if auto_all:
+            rec._auto_convert()
 
     # ------------------------------------------------------------------ Calendar → reuniones
     @api.model
@@ -771,6 +888,13 @@ class GoogleSync(models.AbstractModel):
                 self.env["aq.ops.ai"].sudo().summarize_meeting(m)
         except Exception as e:  # noqa
             _logger.info("Proceso IA: %s", e)
+        if not m.summary_doc_url and not m.google_doc_url:
+            try:  # aunque la IA falle, la minuta siempre queda en Google Docs
+                m.action_create_google_doc()
+            except Exception as e:  # noqa
+                _logger.info("Doc de minuta: %s", e)
+        msg.write({"exec_summary": m.exec_summary or msg.exec_summary,
+                   "summary_doc_url": m.summary_doc_url or m.google_doc_url or msg.summary_doc_url})
         self.env["aq.ops.notification"].sudo().notify_role(m.project_id, ["pm"], "accion_requerida", _("Notas de reunión recibidas: %s — revise y confirme acuerdos") % m.name, "meetings", m.id)
         return m
 

@@ -13,13 +13,13 @@ export default function GoogleIntegration() {
   const load = useCallback(() => api.get('/google/status').then(setSt).catch((e: any) => toast(e.message, 'err')), [toast])
   useEffect(() => { load(); if (sp.get('connected')) toast('Google conectado correctamente', 'ok'); if (sp.get('error')) toast('Google: ' + sp.get('error'), 'err') }, [load])  // eslint-disable-line
   const connect = async () => { try { const r = await api.get('/google/auth-url'); window.location.href = r.url } catch (e: any) { toast(e.message, 'err') } }
-  const sync = async () => { setBusy(true); try { setSt(await api.post('/google/sync')); toast('Sincronización completada', 'ok') } catch (e: any) { toast(e.message, 'err') } finally { setBusy(false) } }
+  const sync = async (days?: number) => { setBusy(true); try { setSt(await api.post('/google/sync', days ? { days } : undefined)); toast(days ? `Sincronización de los últimos ${days} días completada` : 'Sincronización completada', 'ok') } catch (e: any) { toast(e.message, 'err') } finally { setBusy(false) } }
   const upd = async (a: any, vals: any) => { try { setSt(await api.put(`/google/accounts/${a.id}`, vals)) } catch (e: any) { toast(e.message, 'err') } }
   if (!st) return <div className="empty">Consultando…</div>
   return (
     <div>
       <div className="hero"><div><div className="tag">Integraciones autorizadas</div><h1>Google Workspace</h1><div className="pulse">Gmail · Calendar · Meet · Drive · Docs · Sheets → {st.pending.ops} pendientes en Operaciones · {st.pending.admin} en Administración</div></div>
-        <div className="toolbar" style={{ margin: 0 }}>{canConnect && <button className="btn" onClick={connect}>{st.accounts.some((a: any) => a.state === 'conectada') ? 'Reconectar / otra cuenta' : 'Conectar cuenta de Google'}</button>}<button className="btn secondary" disabled={busy} onClick={sync}>{busy ? 'Sincronizando…' : 'Sincronizar ahora'}</button></div></div>
+        <div className="toolbar" style={{ margin: 0 }}>{canConnect && <button className="btn" onClick={connect}>{st.accounts.some((a: any) => a.state === 'conectada') ? 'Reconectar / otra cuenta' : 'Conectar cuenta de Google'}</button>}<button className="btn secondary" disabled={busy} onClick={() => sync()}>{busy ? 'Sincronizando…' : 'Sincronizar ahora'}</button><button className="btn secondary" disabled={busy} onClick={() => sync(30)} title="Trae y procesa el correo de los últimos 30 días (útil si la sincronización estuvo detenida)">Traer 30 días</button></div></div>
       {(!st.client_id_configured || !st.client_secret_configured) && <div className="alert err">Falta configuración OAuth: {!st.client_id_configured && 'GOOGLE_CLIENT_ID '} {!st.client_secret_configured && 'GOOGLE_CLIENT_SECRET'} — defínalos como variable de entorno del servidor o parámetro del sistema (sin comillas).</div>}
       <div className="grid cols-2">
         {st.accounts.map((a: any) => (
