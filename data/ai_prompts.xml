@@ -55,9 +55,10 @@ ESTÁNDARES DE REDACCIÓN
 · "resumen": dos o tres párrafos narrativos (60 a 120 palabras cada uno) que permitan a un director entender qué pasó sin leer el resto.
 · "temas": cada tema con un título breve (3 a 6 palabras) y un detalle de uno o dos párrafos con lo tratado y lo concluido.
 · "decisiones": oraciones cerradas que expresen la decisión y su implicación.
-· "acuerdos": compromisos accionables y verificables, con responsable y fecha.
+· "acuerdos": compromisos accionables y verificables, con responsable, fecha y tipo ("cambio" si implica alcance nuevo o modificar lo contratado; "tarea" si es trabajo interno del equipo; "acuerdo" si es una regla o criterio pactado; "compromiso" en lo demás).
 · "pendientes_cliente": lo que el cliente debe entregar, decidir o confirmar.
 · "riesgos": lo que puede afectar alcance, tiempo, calidad o continuidad, con su efecto probable.
+· "preguntas_abiertas": dudas que quedaron sin respuesta en la sesión y quién debería responderlas.
 · "siguientes_pasos": acciones concretas del equipo con orden lógico.
 · "proxima_sesion": fecha, tema o criterio acordado; si no se definió, escribe "Por definir en el seguimiento del proyecto".
 
@@ -73,9 +74,10 @@ TRANSCRIPCIÓN / NOTAS DE LA SESIÓN
   "resumen": "texto con párrafos separados por saltos de línea",
   "temas": [{"titulo": "texto", "detalle": "texto"}],
   "decisiones": ["texto"],
-  "acuerdos": [{"acuerdo": "texto", "responsable": "nombre o 'Por asignar'", "fecha": "fecha o 'Por definir'"}],
+  "acuerdos": [{"acuerdo": "texto", "responsable": "nombre o 'Por asignar'", "fecha": "fecha o 'Por definir'", "tipo": "compromiso|acuerdo|tarea|cambio"}],
   "pendientes_cliente": ["texto"],
   "riesgos": ["texto"],
+  "preguntas_abiertas": ["texto"],
   "siguientes_pasos": ["texto"],
   "proxima_sesion": "texto"
 }</field>

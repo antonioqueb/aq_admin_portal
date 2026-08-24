@@ -286,8 +286,8 @@ class OpsMeetingSession(models.Model):
             data = AI.summarize_meeting(m)  # crea acuerdos propuestos + resumen corto
             exec_json = self.build_exec_summary(m.name, m.project_id.name, m.date, text)
             exec_json = exec_json if exec_json.get("resumen") or exec_json.get("acuerdos") else {"objetivo": "", "resumen": data.get("summary") or text[:800], "temas": [], "decisiones": data.get("decisions") and [d.get("name") for d in data["decisions"]] or [],
-                                      "acuerdos": [{"acuerdo": a.get("name"), "responsable": a.get("owner"), "fecha": a.get("due_date")} for a in data.get("agreements", [])],
-                                      "pendientes_cliente": [], "riesgos": data.get("risks", []), "siguientes_pasos": [], "proxima_sesion": ""}
+                                      "acuerdos": [{"acuerdo": a.get("name"), "responsable": a.get("owner"), "fecha": a.get("due_date"), "tipo": a.get("kind")} for a in data.get("agreements", [])],
+                                      "pendientes_cliente": [], "riesgos": data.get("risks", []), "siguientes_pasos": [], "preguntas_abiertas": data.get("questions", []), "proxima_sesion": ""}
             html = self._exec_html(m, exec_json)
             m.with_context(aq_skip_activity=True).write({"exec_summary": html, "processed": True, "state": "realizada" if m.state == "programada" else m.state})
             # ---- seguimiento: acuerdos → actividades, decisiones, riesgos, preguntas y siguiente acción
@@ -343,7 +343,9 @@ class OpsMeetingSession(models.Model):
         out = AI.chat_json("Eres el redactor ejecutivo de Alphaqueb Consulting. Redacta en español profesional, prosa natural (nunca JSON ni Markdown dentro de los textos). "
                            "Devuelve exclusivamente un objeto JSON con esta forma: "
                            "{\"objetivo\": str, \"resumen\": str (2-3 párrafos narrativos), \"temas\": [{\"titulo\": str, \"detalle\": str (párrafo)}], \"decisiones\": [str], "
-                           "\"acuerdos\": [{\"acuerdo\": str, \"responsable\": str, \"fecha\": str}], \"pendientes_cliente\": [str], \"riesgos\": [str], \"siguientes_pasos\": [str], \"proxima_sesion\": str}. "
+                           "\"acuerdos\": [{\"acuerdo\": str, \"responsable\": str, \"fecha\": str, \"tipo\": \"compromiso\"|\"acuerdo\"|\"tarea\"|\"cambio\"}], "
+                           "\"pendientes_cliente\": [str], \"riesgos\": [str], \"preguntas_abiertas\": [str], \"siguientes_pasos\": [str], \"proxima_sesion\": str}. "
+                           "En \"tipo\": usa \"cambio\" si implica alcance nuevo o modificar lo contratado; \"tarea\" si es trabajo interno; \"acuerdo\" si es una regla o criterio pactado; \"compromiso\" en lo demás. "
                            "Sesión: %s · Proyecto: %s · Fecha: %s.\nTranscripción:\n%s"
                            % (name, project_name or "(por identificar)", date, text[:14000]), max_tokens=2800, tier="deep")
         if out:
@@ -453,29 +455,54 @@ class OpsMeetingSession(models.Model):
             return fields.Date.add(base, days=7)
         return False
 
+    CAMBIO_RE = r"alcance|cotizaci|no contemplado|adicional(es)?\b|fuera de (lo )?contratado|nuevo requerimiento|propuesta econ[óo]mica|orden de cambio"
+
+    def _agreement_kind(self, item, nombre):
+        """Tipo del acuerdo: el que declare la IA ('tipo'/'kind') o, en su defecto, detección de cambio de alcance."""
+        kind = ((item.get("tipo") or item.get("kind") or "") if isinstance(item, dict) else "").strip().lower()
+        if kind in ("compromiso", "acuerdo", "tarea", "cambio"):
+            return kind
+        return "cambio" if re.search(self.CAMBIO_RE, nombre, re.I) else "compromiso"
+
+    @staticmethod
+    def _is_dup(nombre, existentes):
+        """Duplicado si coincide o si un nombre contiene al otro (la IA repite compromisos con distinta redacción)."""
+        n = nombre.lower()
+        return any(n == e or (len(n) > 25 and len(e) > 25 and (n in e or e in n)) for e in existentes)
+
     def _merge_agreements(self, d):
-        """Lleva los acuerdos y pendientes del resumen ejecutivo a la capa confirmable (sin duplicar)."""
+        """Lleva TODO lo accionable del resumen ejecutivo a la capa confirmable (sin duplicar):
+        acuerdos (con su tipo: compromiso/acuerdo/tarea/cambio), pendientes del cliente y siguientes pasos."""
         self.ensure_one()
         Agreement = self.env["aq.ops.meeting.agreement"].sudo()
         existentes = {(a.name or "").strip().lower() for a in self.agreement_ids}
         nuevos = 0
         for a in (d.get("acuerdos") or []):
             nombre = (a.get("acuerdo") if isinstance(a, dict) else str(a) or "").strip()
-            if not nombre or nombre.lower() in existentes:
+            if not nombre or self._is_dup(nombre, existentes):
                 continue
             resp = a.get("responsable") if isinstance(a, dict) else ""
             member = self._find_member(resp)
             contacto = self._find_client_contact(resp) if not member else self.env["res.partner"]
             Agreement.create({"meeting_id": self.id, "name": nombre[:200], "owner_id": member.id, "owner_partner_id": contacto.id,
                               "due_date": self._parse_due(a.get("fecha") if isinstance(a, dict) else ""),
-                              "kind": "compromiso", "proposed_by_ai": True})
+                              "kind": self._agreement_kind(a, nombre), "proposed_by_ai": True})
             existentes.add(nombre.lower()); nuevos += 1
         for p in (d.get("pendientes_cliente") or []):
             nombre = (p if isinstance(p, str) else str(p)).strip()
-            if not nombre or nombre.lower() in existentes:
+            if not nombre or self._is_dup(nombre, existentes):
                 continue
             Agreement.create({"meeting_id": self.id, "name": nombre[:200], "owner_partner_id": (self.client_partner_ids[:1] or self.project_id.client_contact_ids[:1]).id or False,
                               "kind": "compromiso", "proposed_by_ai": True})
+            existentes.add(nombre.lower()); nuevos += 1
+        # siguientes pasos: trabajo interno que también debe quedar repartido (tarea del PM si nadie más lo asume)
+        for p in (d.get("siguientes_pasos") or []):
+            nombre = re.sub(r"<[^>]+>", "", p if isinstance(p, str) else self._fmt_item(p)).strip()
+            if not nombre or self._is_dup(nombre, existentes):
+                continue
+            Agreement.create({"meeting_id": self.id, "name": nombre[:200],
+                              "owner_id": self.project_id.pm_id.id or self.project_id.tech_lead_id.id,
+                              "kind": "tarea", "proposed_by_ai": True})
             existentes.add(nombre.lower()); nuevos += 1
         return nuevos
 
@@ -490,14 +517,19 @@ class OpsMeetingSession(models.Model):
         Raid = self.env["aq.ops.raid"].sudo()
         Question = self.env["aq.ops.meeting.question"].sudo()
         hoy = fields.Date.context_today(self)
+        # La decisión registrada en sesión ya fue tomada por las personas presentes: se aprueba sin más trámite
+        # (si se detecta un error, se corrige con "Nueva versión", nunca editando en silencio).
+        auto_dec = self.env["ir.config_parameter"].sudo().get_param("aq_ops.auto_approve_decisions", "1") == "1"
         res = {"decisiones": 0, "riesgos": 0, "preguntas": 0, "siguiente_accion": False}
         for dec in (d.get("decisiones") or []):
             texto = (dec if isinstance(dec, str) else self._fmt_item(dec)).strip()
             if not texto or Decision.search_count([("meeting_id", "=", self.id), ("name", "=ilike", texto[:120])]):
                 continue
-            Decision.create({"name": texto[:120], "project_id": project.id, "meeting_id": self.id, "decision_text": texto,
-                             "context_text": _("Registrada en la sesión %s.") % self.name, "date": (self.date or fields.Datetime.now()).date(),
-                             "decided_by_id": project.pm_id.id, "state": "propuesta", "client_visible": self.client_visible})
+            rec = Decision.create({"name": texto[:120], "project_id": project.id, "meeting_id": self.id, "decision_text": texto,
+                                   "context_text": _("Registrada en la sesión %s.") % self.name, "date": (self.date or fields.Datetime.now()).date(),
+                                   "decided_by_id": project.pm_id.id, "state": "propuesta", "client_visible": self.client_visible})
+            if auto_dec:
+                rec.write({"state": "aprobada", "approved_date": hoy})
             res["decisiones"] += 1
         for r in (d.get("riesgos") or []):
             texto = (r if isinstance(r, str) else self._fmt_item(r)).strip()
@@ -510,10 +542,14 @@ class OpsMeetingSession(models.Model):
             res["riesgos"] += 1
         data_q = (d.get("preguntas") or d.get("preguntas_abiertas") or [])
         for q in data_q:
-            texto = (q if isinstance(q, str) else self._fmt_item(q)).strip()
+            texto = (q if isinstance(q, str) else (q.get("pregunta") or self._fmt_item(q))).strip()
             if not texto or Question.search_count([("meeting_id", "=", self.id), ("name", "=ilike", texto[:120])]):
                 continue
-            Question.create({"meeting_id": self.id, "name": texto[:200], "owner_partner_id": (self.client_partner_ids[:1]).id or False, "client_visible": self.client_visible})
+            resp_q = q.get("responsable") if isinstance(q, dict) else ""
+            member_q = self._find_member(resp_q)
+            Question.create({"meeting_id": self.id, "name": texto[:200], "owner_id": member_q.id,
+                             "owner_partner_id": (self._find_client_contact(resp_q) if not member_q else self.env["res.partner"]).id or (self.client_partner_ids[:1]).id or False,
+                             "client_visible": self.client_visible})
             res["preguntas"] += 1
         pasos = [p for p in (d.get("siguientes_pasos") or []) if p]
         if pasos and (not project.has_next_action or (project.next_action_date and project.next_action_date < hoy)):
@@ -549,10 +585,10 @@ class OpsMeetingSession(models.Model):
         acuerdos = "".join("<li>%s</li>" % self._fmt_item(a) for a in (d.get("acuerdos") or []))
         temas = "".join("<h4>%s</h4><p>%s</p>" % (t.get("titulo", ""), t.get("detalle", "")) if isinstance(t, dict) else "<p>%s</p>" % t for t in (d.get("temas") or []))
         return ("<h2>%s</h2><p><b>Proyecto:</b> %s · <b>Fecha:</b> %s%s</p><h3>Objetivo</h3><p>%s</p><h3>Resumen ejecutivo</h3><p>%s</p>%s"
-                "<h3>Decisiones</h3>%s<h3>Acuerdos y compromisos</h3><ul>%s</ul><h3>Pendientes del cliente</h3>%s<h3>Riesgos</h3>%s<h3>Siguientes pasos</h3>%s<p><b>Próxima sesión:</b> %s</p>") % (
+                "<h3>Decisiones</h3>%s<h3>Acuerdos y compromisos</h3><ul>%s</ul><h3>Pendientes del cliente</h3>%s<h3>Preguntas abiertas</h3>%s<h3>Riesgos</h3>%s<h3>Siguientes pasos</h3>%s<p><b>Próxima sesión:</b> %s</p>") % (
             m.name, m.project_id.name, m.date, (" · <b>Folio:</b> %s" % m.folio) if getattr(m, "folio", None) else "", d.get("objetivo") or "—",
             (d.get("resumen") or "").replace("\n", "<br/>"), temas, ul(d.get("decisiones")), acuerdos or "<li>—</li>",
-            ul(d.get("pendientes_cliente")), ul(d.get("riesgos")), ul(d.get("siguientes_pasos")), d.get("proxima_sesion") or "por definir")
+            ul(d.get("pendientes_cliente")), ul(d.get("preguntas_abiertas") or d.get("preguntas")), ul(d.get("riesgos")), ul(d.get("siguientes_pasos")), d.get("proxima_sesion") or "por definir")
 
     @api.model
     def create_summary_doc_generic(self, title, project_name, partner_name, date, d, project=None, meeting=None):
@@ -631,6 +667,8 @@ class OpsMeetingSession(models.Model):
             blocks.append({"type": "p", "text": "No se registraron acuerdos formales en esta sesión."})
         if d.get("pendientes_cliente"):
             section("Pendientes a cargo del cliente"); bullets(d["pendientes_cliente"])
+        if d.get("preguntas_abiertas") or d.get("preguntas"):
+            section("Preguntas abiertas"); bullets(d.get("preguntas_abiertas") or d.get("preguntas"))
         if d.get("riesgos"):
             section("Riesgos y alertas"); bullets(d["riesgos"])
         if d.get("siguientes_pasos"):

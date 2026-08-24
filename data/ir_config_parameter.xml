@@ -24,4 +24,12 @@
         <field name="key">aq_admin_portal.portal_path</field>
         <field name="value">/admin-portal</field>
     </record>
+    <record id="param_auto_confirm_agreements" model="ir.config_parameter">
+        <field name="key">aq_ops.auto_confirm_agreements</field>
+        <field name="value">1</field>
+    </record>
+    <record id="param_auto_approve_decisions" model="ir.config_parameter">
+        <field name="key">aq_ops.auto_approve_decisions</field>
+        <field name="value">1</field>
+    </record>
 </odoo>
