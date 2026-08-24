@@ -20,6 +20,8 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.modify", "https://www.googleapi
           "https://www.googleapis.com/auth/documents", "https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/meetings.space.readonly",
           "https://www.googleapis.com/auth/userinfo.email", "openid"]
 MEET_SENDERS = ("meet-recordings-noreply@google.com", "gemini-noreply@google.com", "calendar-notification@google.com")
+# "Plantilla Membretada Pro" (Drive de antonio@alphaqueb.com): membrete oficial sobre el que se maquetan los documentos.
+DOC_TEMPLATE_DEFAULT = "1ep_RM47LalrjXY5D9XLou60AF5DTSqc2fop8t9Sw2EE"
 
 
 def _extract_attachment_text(filename, raw):
@@ -988,14 +990,111 @@ class OpsMeetingGoogle(models.Model):
     meet_record = fields.Char(string="Registro de Meet", readonly=True)
     google_doc_url = fields.Char(string="Minuta en Google Docs", readonly=True)
 
+    # ------------------------------------------------------------------ plantilla membretada
+    @api.model
+    def _template_id(self, acc):
+        """Google Doc plantilla (membrete A4 con marca) sobre el que se maquetan todos los documentos.
+        Orden: parámetro aq_google.doc_template_id (acepta ID o URL) → búsqueda por nombre en Drive →
+        se crea una sola vez y se recuerda. Para usar una plantilla propia, pegue su URL en el parámetro."""
+        icp = self.env["ir.config_parameter"].sudo()
+        tid = (icp.get_param("aq_google.doc_template_id") or "").strip() or DOC_TEMPLATE_DEFAULT
+        if tid:
+            mm = re.search(r"/d/([\w-]+)", tid)
+            tid = mm.group(1) if mm else tid
+            try:
+                info = acc.get("https://www.googleapis.com/drive/v3/files/%s" % tid, {"fields": "id,trashed"})
+                if not info.get("trashed"):
+                    icp.set_param("aq_google.doc_template_id", tid)
+                    return tid
+            except UserError:
+                _logger.info("Plantilla configurada inaccesible (%s); se busca o regenera otra", tid)
+        files = acc.drive_search("name = 'Plantilla membretada Alphaqueb' and mimeType='application/vnd.google-apps.document' and trashed=false")
+        tid = files[0]["id"] if files else self._create_letterhead_template(acc)
+        icp.set_param("aq_google.doc_template_id", tid)
+        return tid
+
+    @api.model
+    def _create_letterhead_template(self, acc):
+        """Crea el membrete de marca: página A4, encabezado con logo (o wordmark) y línea lima, pie de contacto."""
+        from .doc_builder import PURPLE, MUTED, LIME, LINE, F_TITLE, F_LABEL, _rgb, u16
+        icp = self.env["ir.config_parameter"].sudo()
+        did = acc.post("https://docs.googleapis.com/v1/documents", {"title": "Plantilla membretada Alphaqueb"})["documentId"]
+        batch = "https://docs.googleapis.com/v1/documents/%s:batchUpdate" % did
+        try:
+            acc._call("PATCH", "https://www.googleapis.com/drive/v3/files/%s" % did, params={"addParents": acc.drive_folder_id("Alphaops")})
+        except Exception as e:  # noqa
+            _logger.info("Carpeta de plantilla: %s", e)
+        r = acc.post(batch, {"requests": [
+            {"updateDocumentStyle": {"documentStyle": {
+                "pageSize": {"width": {"magnitude": 595.28, "unit": "PT"}, "height": {"magnitude": 841.89, "unit": "PT"}},
+                "marginTop": {"magnitude": 84, "unit": "PT"}, "marginBottom": {"magnitude": 72, "unit": "PT"},
+                "marginLeft": {"magnitude": 56, "unit": "PT"}, "marginRight": {"magnitude": 56, "unit": "PT"},
+                "marginHeader": {"magnitude": 26, "unit": "PT"}, "marginFooter": {"magnitude": 22, "unit": "PT"}},
+                "fields": "pageSize,marginTop,marginBottom,marginLeft,marginRight,marginHeader,marginFooter"}},
+            {"createHeader": {"type": "DEFAULT"}},
+            {"createFooter": {"type": "DEFAULT"}},
+        ]})
+        hid = fid = None
+        for rep in r.get("replies", []):
+            hid = rep.get("createHeader", {}).get("headerId") or hid
+            fid = rep.get("createFooter", {}).get("footerId") or fid
+        reqs = []
+        if hid:
+            base = (icp.get_param("aq_admin_portal.base_url") or icp.get_param("web.base.url") or "").rstrip("/")
+            placed = False
+            if base:
+                try:  # logo real; Google debe poder descargar la URL pública
+                    acc.post(batch, {"requests": [{"insertInlineImage": {
+                        "location": {"segmentId": hid, "index": 0}, "uri": base + "/aq_admin_portal/static/description/logo.png",
+                        "objectSize": {"height": {"magnitude": 26, "unit": "PT"}}}}]})
+                    placed = True
+                except Exception as e:  # noqa
+                    _logger.info("Logo en membrete: %s", e)
+            if not placed:  # wordmark tipográfico con los colores de marca
+                reqs += [{"insertText": {"location": {"segmentId": hid, "index": 0}, "text": "ALPHAQUEB"}},
+                         {"updateTextStyle": {"range": {"segmentId": hid, "startIndex": 0, "endIndex": 9},
+                                              "textStyle": {"weightedFontFamily": {"fontFamily": F_TITLE}, "fontSize": {"magnitude": 17, "unit": "PT"},
+                                                            "foregroundColor": _rgb(PURPLE)},
+                                              "fields": "weightedFontFamily,fontSize,foregroundColor"}}]
+            reqs.append({"updateParagraphStyle": {"range": {"segmentId": hid, "startIndex": 0, "endIndex": 1},
+                                                  "paragraphStyle": {"borderBottom": {"color": _rgb(LIME), "width": {"magnitude": 1.5, "unit": "PT"},
+                                                                                      "padding": {"magnitude": 6, "unit": "PT"}, "dashStyle": "SOLID"}},
+                                                  "fields": "borderBottom"}})
+        if fid:
+            foot = "Alphaqueb Consulting · Consultoría e implementación de Odoo · alphaqueb.com"
+            reqs += [{"insertText": {"location": {"segmentId": fid, "index": 0}, "text": foot}},
+                     {"updateTextStyle": {"range": {"segmentId": fid, "startIndex": 0, "endIndex": u16(foot)},
+                                          "textStyle": {"weightedFontFamily": {"fontFamily": F_LABEL}, "fontSize": {"magnitude": 8, "unit": "PT"},
+                                                        "foregroundColor": _rgb(MUTED)},
+                                          "fields": "weightedFontFamily,fontSize,foregroundColor"}},
+                     {"updateParagraphStyle": {"range": {"segmentId": fid, "startIndex": 0, "endIndex": u16(foot)},
+                                               "paragraphStyle": {"alignment": "CENTER",
+                                                                  "borderTop": {"color": _rgb(LINE), "width": {"magnitude": 0.75, "unit": "PT"},
+                                                                                "padding": {"magnitude": 4, "unit": "PT"}, "dashStyle": "SOLID"}},
+                                               "fields": "alignment,borderTop"}}]
+        if reqs:
+            acc.post(batch, {"requests": reqs})
+        return did
+
     def action_create_google_doc(self):
-        Sync = self.env["aq.google.sync"]
-        acc = Sync._account()
-        folder = acc.drive_folder_id("Alphaops")
+        """Minuta en Google Docs SIEMPRE con la plantilla de marca (el texto plano queda solo como último recurso)."""
+        Session = self.env["aq.ops.meeting"]
         for m in self:
-            rows = "\n".join("- %s (%s, %s)" % (a.name, a.owner_id.name or a.owner_partner_id.name or "-", a.due_date or "-") for a in m.agreement_ids)
-            text = "%s\n%s · %s\n\nAgenda:\n%s\n\nMinuta:\n%s\n\nAcuerdos:\n%s\n" % (m.name, m.project_id.name, m.date, m.agenda or "", re.sub(r"<[^>]+>", " ", m.minutes or ""), rows)
-            _, url = acc.create_doc("Minuta · %s · %s" % (m.project_id.name, m.name), text, folder)
+            d = {"objetivo": "",
+                 "resumen": re.sub(r"<[^>]+>", " ", m.minutes or m.agenda or "").strip() or _("Minuta de la sesión %s.") % m.name,
+                 "temas": [], "decisiones": [],
+                 "acuerdos": [{"acuerdo": a.name, "responsable": a.owner_id.name or a.owner_partner_id.name or _("Por asignar"),
+                               "fecha": str(a.due_date) if a.due_date else _("Por definir")} for a in m.agreement_ids],
+                 "pendientes_cliente": [], "riesgos": [], "siguientes_pasos": [],
+                 "proxima_sesion": str(m.next_meeting_date or "")}
+            try:
+                url = Session.create_summary_doc_generic(m.name, m.project_id.name, m.project_id.partner_id.name, m.date, d, project=m.project_id, meeting=m)
+            except Exception as e:  # noqa — último recurso: documento simple, pero que nunca falte la minuta
+                _logger.warning("Constructor de marca no disponible (%s); se genera documento simple", e)
+                acc = self.env["aq.google.sync"]._account()
+                rows = "\n".join("- %s (%s, %s)" % (a.name, a.owner_id.name or a.owner_partner_id.name or "-", a.due_date or "-") for a in m.agreement_ids)
+                text = "%s\n%s · %s\n\nAgenda:\n%s\n\nMinuta:\n%s\n\nAcuerdos:\n%s\n" % (m.name, m.project_id.name, m.date, m.agenda or "", re.sub(r"<[^>]+>", " ", m.minutes or ""), rows)
+                _, url = acc.create_doc("Minuta · %s · %s" % (m.project_id.name, m.name), text, acc.drive_folder_id("Alphaops"))
             m.write({"google_doc_url": url})
             self.env["aq.ops.document"].sudo().create({"name": "Minuta · %s" % m.name, "doc_type": "minuta", "project_id": m.project_id.id, "drive_url": url, "meeting_id": m.id, "client_visible": m.client_visible})
         return True
