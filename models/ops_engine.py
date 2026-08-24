@@ -30,7 +30,7 @@ class OpsEngine(models.AbstractModel):
         return self.env["aq.ops.notification"]
 
     # ------------------------------------------------------------ importaciones a nombre de OdooBot
-    BOT_MODELS = ("aq.ops.", "aq.portal.member", "res.partner", "ir.attachment")
+    BOT_MODELS = ("aq.ops.", "aq.portal.", "aq.ai.prompt", "res.partner", "ir.attachment")
 
     def _bot_check(self, model):
         if not self.env.user.has_group("aq_admin_portal.group_aq_portal_manager"):
