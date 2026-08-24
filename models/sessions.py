@@ -283,8 +283,11 @@ class OpsMeetingSession(models.Model):
                     m.action_assign_folio()
                 except Exception as e:  # noqa
                     _logger.info("Folio automático: %s", e)
-            data = AI.summarize_meeting(m)  # crea acuerdos propuestos + resumen corto
-            exec_json = self.build_exec_summary(m.name, m.project_id.name, m.date, text)
+            # se condensa UNA vez (map-reduce) y ambos análisis usan la misma versión sin perder contenido
+            text = AI.condense_transcript(text, 13000)
+            roster = m._roster_text()
+            data = AI.summarize_meeting(m, text=text)  # crea acuerdos propuestos + resumen corto
+            exec_json = self.build_exec_summary(m.name, m.project_id.name, m.date, text, roster=roster)
             exec_json = exec_json if exec_json.get("resumen") or exec_json.get("acuerdos") else {"objetivo": "", "resumen": data.get("summary") or text[:800], "temas": [], "decisiones": data.get("decisions") and [d.get("name") for d in data["decisions"]] or [],
                                       "acuerdos": [{"acuerdo": a.get("name"), "responsable": a.get("owner"), "fecha": a.get("due_date"), "tipo": a.get("kind")} for a in data.get("agreements", [])],
                                       "pendientes_cliente": [], "riesgos": data.get("risks", []), "siguientes_pasos": [], "preguntas_abiertas": data.get("questions", []), "proxima_sesion": ""}
@@ -333,11 +336,14 @@ class OpsMeetingSession(models.Model):
         return True
 
     @api.model
-    def build_exec_summary(self, name, project_name, date, text):
-        """Genera el JSON del resumen ejecutivo a partir de una transcripción, sin requerir reunión ni proyecto."""
+    def build_exec_summary(self, name, project_name, date, text, roster=None):
+        """Genera el JSON del resumen ejecutivo a partir de una transcripción, sin requerir reunión ni proyecto.
+        `roster`: participantes reales para que los responsables salgan con nombres exactos y se vinculen solos."""
         AI = self.env["aq.ops.ai"].sudo()
+        text = AI.condense_transcript(text or "", 14000)
         out = self.env["aq.ai.prompt"].sudo().render("session_exec_summary", {
-            "titulo": name, "proyecto": project_name or "(por identificar)", "fecha": str(date or ""), "transcripcion": text[:14000]})
+            "titulo": name, "proyecto": project_name or "(por identificar)", "fecha": str(date or ""),
+            "participantes": roster or "(no registrados)", "transcripcion": text[:14000]})
         if isinstance(out, dict) and (out.get("resumen") or out.get("acuerdos")):
             return out
         out = AI.chat_json("Eres el redactor ejecutivo de Alphaqueb Consulting. Redacta en español profesional, prosa natural (nunca JSON ni Markdown dentro de los textos). "
@@ -346,8 +352,9 @@ class OpsMeetingSession(models.Model):
                            "\"acuerdos\": [{\"acuerdo\": str, \"responsable\": str, \"fecha\": str, \"tipo\": \"compromiso\"|\"acuerdo\"|\"tarea\"|\"cambio\"}], "
                            "\"pendientes_cliente\": [str], \"riesgos\": [str], \"preguntas_abiertas\": [str], \"siguientes_pasos\": [str], \"proxima_sesion\": str}. "
                            "En \"tipo\": usa \"cambio\" si implica alcance nuevo o modificar lo contratado; \"tarea\" si es trabajo interno; \"acuerdo\" si es una regla o criterio pactado; \"compromiso\" en lo demás. "
-                           "Sesión: %s · Proyecto: %s · Fecha: %s.\nTranscripción:\n%s"
-                           % (name, project_name or "(por identificar)", date, text[:14000]), max_tokens=2800, tier="deep")
+                           "En \"responsable\": usa exactamente uno de los participantes listados (o 'Por asignar'). En \"fecha\": resuelve expresiones como 'el viernes' a formato AAAA-MM-DD tomando como referencia la fecha de la sesión; si no se mencionó, 'Por definir'. "
+                           "Sesión: %s · Proyecto: %s · Fecha: %s.\nParticipantes:\n%s\nTranscripción:\n%s"
+                           % (name, project_name or "(por identificar)", date, roster or "(no registrados)", text[:14000]), max_tokens=2800, tier="deep")
         if out:
             return out
         # sin IA: heurística mínima
@@ -401,6 +408,24 @@ class OpsMeetingSession(models.Model):
         return True
 
     # ------------------------------------------------------------------ seguimiento automático
+    def _roster_text(self):
+        """Lista de participantes reales (equipo y cliente) para que la IA atribuya responsables con nombres exactos."""
+        self.ensure_one()
+        p = self.project_id
+        internos = self.member_ids
+        clientes = self.client_partner_ids
+        if p:
+            internos |= p.pm_id | p.tech_lead_id
+            clientes |= p.client_contact_ids
+        lin = "; ".join("%s%s" % (m.name, " (PM)" if p and m == p.pm_id else "") for m in internos if m.name)
+        lcl = "; ".join(c.name for c in clientes if c.name)
+        out = []
+        if lin:
+            out.append("Equipo Alphaqueb: %s" % lin)
+        if lcl:
+            out.append("Por el cliente: %s" % lcl)
+        return "\n".join(out)
+
     def _find_member(self, name):
         if not name or not isinstance(name, str):
             return self.env["aq.portal.member"]

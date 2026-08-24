@@ -75,9 +75,17 @@ class AiPrompt(models.Model):
             body = self._fill(p.user_template, ctx)
             if p.json_mode and p.json_schema_hint:
                 body += "\n\nDevuelve exclusivamente un objeto JSON con esta forma:\n" + p.json_schema_hint.strip()
-            out = AI.chat(body, system=system or AI.SYSTEM_DEFAULT, json_mode=p.json_mode, max_tokens=p.max_tokens or 1500, tier=tier or p.tier, images=images)
+            out = AI.chat(body, system=system or AI.SYSTEM_DEFAULT, json_mode=p.json_mode, max_tokens=p.max_tokens or 1500,
+                          tier=tier or p.tier, images=images, temperature=p.temperature)
             p.sudo().write({"last_used": fields.Datetime.now(), "use_count": p.use_count + 1})
-            return AI.parse_json(out) if (p.json_mode and out) else out
+            if not p.json_mode:
+                return out
+            d = AI.parse_json(out) if out else None
+            if d is None and out:  # reintento correctivo: el modelo devolvió texto que no parsea
+                out = AI.chat(body + "\n\nTu respuesta anterior no fue JSON válido. Devuelve EXCLUSIVAMENTE el objeto JSON, sin texto antes ni después.",
+                              system=system or AI.SYSTEM_DEFAULT, json_mode=True, max_tokens=p.max_tokens or 1500, tier=tier or p.tier, temperature=0.0)
+                d = AI.parse_json(out)
+            return d
         # respaldo: comportamiento embebido
         body = self._fill(fallback_template or "", ctx)
         out = AI.chat(body, system=fallback_system or AI.SYSTEM_DEFAULT, json_mode=bool(images is None and fallback_system and "JSON" in (fallback_template or "")), max_tokens=2000, tier=tier or "fast", images=images)
@@ -103,9 +111,13 @@ class AiPrompt(models.Model):
         sample = {"titulo": "SESIÓN #99– DEMO– DAILY SYNC | hoy", "proyecto": "Proyecto de demostración", "cliente": "Cliente Demo", "fecha": str(fields.Date.today()),
                   "transcripcion": "Antonio: revisamos el avance del módulo de inventario. Dayana: quedan pendientes dos reportes. "
                                    "Acordamos que Jhon entrega el reporte de existencias el viernes y el cliente enviará el catálogo actualizado el jueves.",
+                  "participantes": "Equipo Alphaqueb: Antonio Queb (PM); Dayana Pérez; Jhon García\nPor el cliente: Laura Méndez",
                   "texto": "Texto de ejemplo para la prueba del prompt.", "asunto": "Factura F-1024 pendiente de pago", "remitente": "contacto@cliente.com",
+                  "destinatario": "administracion@alphaqueb.com", "proyectos": "Proyecto de demostración · Cliente Demo", "clientes": "Cliente Demo; Empresa Ejemplo",
                   "alcance": "Implementación de inventario y compras.", "solicitud": "Necesitamos un reporte nuevo de existencias por almacén.",
-                  "registro": {"nombre": "Elemento demo", "estado": "en progreso"}, "elementos": "Elemento A [en progreso]; Elemento B [bloqueado]"}
+                  "registro": {"nombre": "Elemento demo", "estado": "en progreso"}, "elementos": "Elemento A [en progreso]; Elemento B [bloqueado]",
+                  "etapa": "implementación", "tipo": "Seguimiento", "duracion": "45", "contexto": "Revisar avance de inventario y definir la carga inicial.",
+                  "campo": "Descripción", "instrucciones": "", "detalle": "", "datos": {}, "salud": "amarillo", "criterios": "El reporte muestra existencias por almacén.", "elemento": "Reporte de existencias"}
         out = self.render(self.code, sample)
         self.sudo().write({"last_output": out if isinstance(out, str) else json.dumps(out, ensure_ascii=False, indent=2)})
         return True

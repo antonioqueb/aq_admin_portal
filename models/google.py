@@ -691,25 +691,39 @@ class GoogleSync(models.AbstractModel):
                 elif rule.target_type != "inbox" and (rule.auto_convert or auto_all):
                     rec._auto_convert()
                 return
-        # copiloto
+        # copiloto — recibe la cartera real (clientes y proyectos activos) para clasificar Y vincular
         AI = self.env["aq.ops.ai"].sudo()
-        out = None
+        d = None
         if AI.available():
-            lib = self.env["aq.ai.prompt"].sudo().render("email_routing", {"remitente": msg.get("from"), "asunto": msg.get("subject"), "cuerpo": (msg.get("body") or "")[:3000]})
-            if isinstance(lib, dict) and lib.get("app"):
-                rec.write({"app": lib.get("app") if lib.get("app") in ("admin", "ops") else "ops",
-                           "category": lib.get("category") if lib.get("category") in dict(rec._fields["category"].selection) else "other",
-                           "ai_summary": lib.get("summary"), "ai_action": lib.get("action"), "routed_by": "ai"})
-                if auto_all:
-                    rec._auto_convert()
-                return
-            out = AI.chat("Clasifica este correo para Alphaqueb Consulting (consultora Odoo). Responde JSON {\"app\": \"admin\"|\"ops\", \"category\": meeting_notes|request|incident|invoice|payable|legal|hr|prospect|agreement|info|other, "
-                          "\"summary\": str (2 líneas), \"action\": str (acción sugerida, una línea)}. Administración = contratos, facturación, cobranza, pagos, legal, RH, prospectos. "
-                          "Operaciones = proyectos, requerimientos, incidencias, reuniones, entregables.\nDe: %s\nAsunto: %s\nCuerpo:\n%s" % (msg.get("from"), msg.get("subject"), (msg.get("body") or "")[:3000]), json_mode=True, max_tokens=300)
-        d = AI.parse_json(out) if out else None
-        if d:
-            rec.write({"app": d.get("app") if d.get("app") in ("admin", "ops") else "ops", "category": d.get("category") if d.get("category") in dict(rec._fields["category"].selection) else "other",
-                       "ai_summary": d.get("summary"), "ai_action": d.get("action"), "routed_by": "ai"})
+            try:
+                proys = "; ".join(p.name for p in self.env["aq.ops.project"].sudo().search([("stage", "not in", ("cerrado",))], limit=40))
+                clientes = "; ".join(p.name for p in self.env["res.partner"].sudo().search([("is_company", "=", True)], limit=60))
+                ctx = {"remitente": msg.get("from"), "asunto": msg.get("subject"), "cuerpo": (msg.get("body") or "")[:3000],
+                       "destinatario": msg.get("to") or "", "proyectos": proys or "(sin proyectos activos)", "clientes": clientes or "(sin clientes registrados)"}
+                d = self.env["aq.ai.prompt"].sudo().render("email_routing", ctx)
+                if not (isinstance(d, dict) and d.get("app")):
+                    d = AI.chat_json("Clasifica este correo para Alphaqueb Consulting (consultora Odoo). Responde JSON {\"app\": \"admin\"|\"ops\", \"category\": meeting_notes|request|incident|invoice|payable|legal|hr|prospect|agreement|info|other, "
+                                     "\"summary\": str (2 líneas), \"action\": str (acción sugerida, una línea), \"project\": str (nombre EXACTO de la lista de proyectos o vacío), \"partner\": str (nombre EXACTO de la lista de clientes o vacío)}. "
+                                     "Administración = contratos, facturación, cobranza, pagos, legal, RH, prospectos. Operaciones = proyectos, requerimientos, incidencias, reuniones, entregables.\n"
+                                     "Proyectos activos: %s\nClientes: %s\nDe: %s\nAsunto: %s\nCuerpo:\n%s"
+                                     % (ctx["proyectos"], ctx["clientes"], msg.get("from"), msg.get("subject"), (msg.get("body") or "")[:3000]), max_tokens=400)
+            except Exception as e:  # noqa — sin copiloto se clasifica por heurística; la sincronización no se detiene
+                _logger.info("Enrutamiento IA: %s", e)
+                d = None
+        if isinstance(d, dict) and d.get("app"):
+            vals = {"app": d.get("app") if d.get("app") in ("admin", "ops") else "ops",
+                    "category": d.get("category") if d.get("category") in dict(rec._fields["category"].selection) else "other",
+                    "ai_summary": d.get("summary"), "ai_action": d.get("action"), "routed_by": "ai"}
+            if d.get("project") and not rec.project_id:
+                proj = self.env["aq.ops.project"].sudo().search([("name", "ilike", str(d["project"])[:60]), ("stage", "not in", ("cerrado",))], limit=1)
+                if proj:
+                    vals["project_id"] = proj.id
+                    vals.setdefault("partner_id", proj.partner_id.id)
+            if d.get("partner") and not rec.partner_id and "partner_id" not in vals:
+                partner = self.env["res.partner"].sudo().search([("name", "ilike", str(d["partner"])[:60])], limit=1)
+                if partner:
+                    vals["partner_id"] = partner.id
+            rec.write(vals)
             if auto_all:
                 rec._auto_convert()
             return

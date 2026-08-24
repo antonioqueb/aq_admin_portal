@@ -112,14 +112,22 @@ class OpsAI(models.AbstractModel):
         return None
 
     @api.model
-    def chat_json(self, prompt, system=SYSTEM, max_tokens=1500, tier="fast"):
-        return self.parse_json(self.chat(prompt, system=system, json_mode=True, max_tokens=max_tokens, tier=tier))
+    def chat_json(self, prompt, system=SYSTEM, max_tokens=1500, tier="fast", temperature=None):
+        """Chat que garantiza JSON: si la primera respuesta no parsea, reintenta una vez pidiendo solo el objeto."""
+        out = self.chat(prompt, system=system, json_mode=True, max_tokens=max_tokens, tier=tier, temperature=temperature)
+        d = self.parse_json(out)
+        if d is None and out:
+            out = self.chat(prompt + "\n\nTu respuesta anterior no fue JSON válido. Devuelve EXCLUSIVAMENTE el objeto JSON, sin texto antes ni después.",
+                            system=system, json_mode=True, max_tokens=max_tokens, tier=tier, temperature=0.0)
+            d = self.parse_json(out)
+        return d
 
     @api.model
-    def chat(self, prompt=None, system=SYSTEM, json_mode=False, max_tokens=1500, tier="fast", images=None):
+    def chat(self, prompt=None, system=SYSTEM, json_mode=False, max_tokens=1500, tier="fast", images=None, temperature=None):
         """Llamada al endpoint compatible de DeepSeek. tier: fast (V4 Flash: transcripciones, extracción, clasificación,
         resúmenes preliminares) | deep (V4 Pro: resumen ejecutivo final, análisis profundo, requerimientos técnicos) |
-        vision (Flash Vision Exp: capturas, diagramas, PDFs escaneados, evidencia). images: lista de data-URLs."""
+        vision (Flash Vision Exp: capturas, diagramas, PDFs escaneados, evidencia). images: lista de data-URLs.
+        Reintenta una vez ante fallas transitorias; el nivel profundo usa un tiempo de espera mayor."""
         c = self._config()
         if not c["enabled"]:
             return None
@@ -127,34 +135,80 @@ class OpsAI(models.AbstractModel):
         model = c["models"].get("vision" if images else tier, c["model"])
         content = prompt if not images else ([{"type": "text", "text": prompt}] + [{"type": "image_url", "image_url": {"url": u}} for u in images[:4]])
         body = {"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
-                "temperature": 0.2, "max_tokens": max_tokens}
+                "temperature": 0.2 if temperature is None else max(0.0, min(float(temperature), 1.5)), "max_tokens": max_tokens}
         if json_mode:
             body["response_format"] = {"type": "json_object"}
-        try:
-            r = requests.post(url, json=body, headers={"Authorization": "Bearer %s" % c["key"], "Content-Type": "application/json"}, timeout=60)
-            r.raise_for_status()
-            if c["record"]:
-                c["record"].write({"last_used": fields.Datetime.now()})
-            return r.json()["choices"][0]["message"]["content"]
-        except requests.RequestException as e:
-            _logger.warning("DeepSeek no disponible: %s", e)
-            raise UserError(_("El copiloto (DeepSeek) no respondió: %s") % e)
+        timeout = 150 if tier in ("deep", "vision") else 75
+        last_err = None
+        for attempt in (1, 2):
+            try:
+                r = requests.post(url, json=body, headers={"Authorization": "Bearer %s" % c["key"], "Content-Type": "application/json"}, timeout=timeout)
+                r.raise_for_status()
+                if c["record"]:
+                    c["record"].write({"last_used": fields.Datetime.now()})
+                return r.json()["choices"][0]["message"]["content"]
+            except requests.RequestException as e:
+                last_err = e
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if attempt == 1 and (status is None or status in (429, 500, 502, 503, 504)):
+                    import time
+                    time.sleep(2)
+                    continue
+                break
+        _logger.warning("DeepSeek no disponible: %s", last_err)
+        raise UserError(_("El copiloto (DeepSeek) no respondió: %s") % last_err)
+
+    @api.model
+    def condense_transcript(self, text, limit=13000):
+        """Una transcripción larga NO se trunca: se condensa por bloques (map-reduce) conservando
+        compromisos, decisiones, cifras, nombres y fechas textuales, y luego se sintetiza con el nivel profundo."""
+        text = text or ""
+        if len(text) <= limit:
+            return text
+        chunk_size = 12000
+        chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)][:12]  # hasta ~144k caracteres
+        notes = []
+        for idx, ch in enumerate(chunks, 1):
+            try:
+                out = self.chat(
+                    "Condensa este fragmento (%d/%d) de la transcripción de una sesión de trabajo a máximo 900 palabras. "
+                    "CONSERVA TEXTUALMENTE: compromisos y quién los asume, decisiones, fechas, cifras, nombres de personas, "
+                    "módulos, procesos y sistemas, dudas abiertas y riesgos. ELIMINA: saludos, muletillas, repeticiones y "
+                    "conversación sin contenido. Mantén el orden cronológico y el formato 'Persona: dijo/acordó…'."
+                    % (idx, len(chunks)) + "\n\nFRAGMENTO:\n" + ch,
+                    max_tokens=1800, tier="fast", temperature=0.1)
+                notes.append(out or ch[:2000])
+            except Exception as e:  # noqa
+                _logger.info("condensar fragmento %d: %s", idx, e)
+                notes.append(ch[:2000])
+        condensed = "\n\n".join(notes)
+        return condensed[:limit * 2]
 
     # ------------------------------------------------------------------ capacidades
     @api.model
-    def summarize_meeting(self, meeting):
-        text = meeting.transcript or meeting.minutes or meeting.agenda or ""
-        if not text.strip():
+    def summarize_meeting(self, meeting, text=None):
+        """`text`: transcripción ya limpia/condensada (evita condensar dos veces en el mismo proceso)."""
+        raw = meeting.transcript or meeting.minutes or meeting.agenda or ""
+        if text is None:
+            if not raw.strip():
+                raise UserError(_("La reunión no tiene transcripción, minuta ni agenda."))
+            text = self.condense_transcript(re.sub(r"<[^>]+>", " ", raw), 12000)
+        elif not (text or "").strip():
             raise UserError(_("La reunión no tiene transcripción, minuta ni agenda."))
-        clean = re.sub(r"<[^>]+>", " ", text)[:12000]
-        data = self.env["aq.ai.prompt"].sudo().render("meeting_extract", {"proyecto": meeting.project_id.name, "transcripcion": clean, "titulo": meeting.name})
+        clean = text[:12000]
+        roster = meeting._roster_text() if hasattr(meeting, "_roster_text") else ""
+        data = self.env["aq.ai.prompt"].sudo().render("meeting_extract", {"proyecto": meeting.project_id.name, "transcripcion": clean, "titulo": meeting.name,
+                                                                          "fecha": str(meeting.date or ""), "participantes": roster or "(no registrados)"})
+        out = None
         if not isinstance(data, dict):
             prompt = ("Resume esta reunión y extrae en JSON: {\"summary\": str, \"agreements\": [{\"name\", \"owner\", \"due_date\", \"kind\": compromiso|acuerdo|tarea|cambio}], "
-                      "\"decisions\": [{\"name\", \"decision\"}], \"questions\": [str], \"risks\": [str]}. Proyecto: %s. Texto:\n%s") % (meeting.project_id.name, clean)
+                      "\"decisions\": [{\"name\", \"decision\"}], \"questions\": [str], \"risks\": [str]}. "
+                      "En \"owner\" usa exactamente uno de los participantes (o vacío); en \"due_date\" resuelve fechas relativas a AAAA-MM-DD con la fecha de la sesión como referencia. "
+                      "Proyecto: %s · Fecha de la sesión: %s.\nParticipantes:\n%s\nTexto:\n%s") % (meeting.project_id.name, meeting.date, roster or "(no registrados)", clean)
             out = self.chat(prompt, json_mode=True, max_tokens=2500, tier="fast")
             data = self.parse_json(out) if out else None
         if data is None:
-            data = self._heuristic_meeting(text) if out is None else {"summary": out, "agreements": [], "decisions": [], "questions": [], "risks": []}
+            data = self._heuristic_meeting(raw or clean) if out is None else {"summary": out, "agreements": [], "decisions": [], "questions": [], "risks": []}
         meeting.write({"ai_summary": data.get("summary"), "ai_proposals_json": json.dumps(data, ensure_ascii=False)})
         Agreement = self.env["aq.ops.meeting.agreement"]
         for a in data.get("agreements", []):
