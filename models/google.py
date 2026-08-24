@@ -628,8 +628,9 @@ class GoogleSync(models.AbstractModel):
             if not project:
                 continue
             members = self.env["aq.portal.member"].sudo().search([("email", "in", [e for e in emails if e.endswith("alphaqueb.com")])])
-            folio, prefix, po = Meeting.parse_folio(ev.get("summary") or "")
-            vals = {"name": (ev.get("summary") or _("Reunión"))[:200], "project_id": project.id, "folio": folio or False,
+            info = Meeting.parse_folio(ev.get("summary") or "")
+            folio, prefix, po, client_folio = info["folio"], info["prefix"], info["po"], info["client_folio"]
+            vals = {"name": (ev.get("summary") or _("Reunión"))[:200], "project_id": project.id, "folio": folio or False, "client_folio": client_folio or False,
                     "date": fields.Datetime.to_datetime(start[:19].replace("T", " ")) if "T" in start else start,
                     "member_ids": [(6, 0, members.ids)], "client_partner_ids": [(6, 0, partner_ids.ids)], "location": ev.get("hangoutLink") or ev.get("location"),
                     "agenda": (ev.get("description") or "")[:4000], "google_event_id": ev["id"], "meet_code": ((ev.get("conferenceData") or {}).get("conferenceId") or "")}
@@ -638,16 +639,24 @@ class GoogleSync(models.AbstractModel):
                 keep = {k: v for k, v in vals.items() if k in ("name", "date", "location", "agenda", "client_partner_ids", "member_ids", "meet_code")}
                 if folio and not m.folio:
                     keep["folio"] = folio
+                if client_folio and not m.client_folio:
+                    keep["client_folio"] = client_folio
                 m.with_context(aq_skip_activity=True).write(keep)
             else:
                 m = Meeting.create(dict(vals, meeting_type="cliente" if external else "interna"))
                 n += 1
+            upd = {}
             if folio and folio > (project.session_seq or 0):
-                project.with_context(aq_skip_activity=True).write({"session_seq": folio})
+                upd["session_seq"] = folio
+            if client_folio and client_folio > (project.client_seq or 0):
+                upd["client_seq"] = client_folio
             if prefix and not project.session_prefix:
-                project.with_context(aq_skip_activity=True).write({"session_prefix": prefix})
+                upd["session_prefix"] = prefix
             if po and not project.session_po:
-                project.with_context(aq_skip_activity=True).write({"session_po": po})
+                upd["session_po"] = po
+                upd["folio_scheme"] = "cliente"
+            if upd:
+                project.with_context(aq_skip_activity=True).write(upd)
             if m.date and m.date < now and m.state == "programada":
                 m.with_context(aq_skip_activity=True).write({"state": "realizada"})
         acc.write({"last_calendar_sync": now})

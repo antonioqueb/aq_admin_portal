@@ -220,7 +220,17 @@ migración, soporte, regulado, capacitación, cierre/handoff y creativo/catálog
 * **Entrega**: el documento se guarda en la carpeta de Drive **del proyecto** (`Alphaops/<Proyecto>`, configurable en la ficha del proyecto), se **comparte automáticamente** con los participantes de la sesión y el correo incluye la liga y el **PDF adjunto**.
 * **Biblioteca de prompts** (`aq.ai.prompt`, Operaciones → Configuración): cada proceso de IA usa un prompt editable, versionado y probable desde el portal (con datos de ejemplo), con su nivel de modelo (Flash/Pro/Vision), modo JSON y esquema de salida. El prompt `brand_voice` se antepone a todos y define identidad, tono y límites de la IA para toda la plataforma.
 
-## Folios de sesión (consecutivo por proyecto)
-* El siguiente folio se calcula del **máximo real ya usado** en el proyecto: el campo `folio` de las sesiones y el número embebido en el título (`SESIÓN #n…` o `PO-25002-SAI-Sesión #n`). Nunca reutiliza ni salta un consecutivo ocupado.
-* La sincronización de Calendar lee el folio, el prefijo de serie y la referencia PO desde el título de cada evento y actualiza el proyecto.
+## Folios de sesión (dos consecutivos independientes)
+* **Folio interno de Alphaqueb** (`folio` / `session_seq`): nuestra numeración por proyecto. Se calcula del **máximo real ya usado** (campo `folio` y número embebido en títulos `SESIÓN #n– SERIE– TIPO`), nunca reutiliza ni pisa un número ocupado, y aplica a todas las sesiones de todos los proyectos.
+* **Consecutivo del cliente** (`client_folio` / `client_seq` + `session_po`): numeración que lleva el cliente, como `PO-25002-SAI-Sesión #45` en SAI. Es del cliente, no nuestra: se guarda y continúa aparte, y solo se usa para titular la sesión cuando el proyecto tiene `folio_scheme = cliente`.
+* La sincronización de Calendar distingue ambas nomenclaturas al leer el título y actualiza el contador que corresponde.
 * Sesiones sin folio: acción **"Asignar folios faltantes"** (por proyecto o global) que las integra al consecutivo en orden cronológico, y **"Asignar folio del consecutivo"** en cada sesión. Al procesar una transcripción, si la sesión no tiene folio se le asigna antes de generar el documento.
+
+### Recuento y orden del histórico
+El histórico real convivía con ocho nomenclaturas (`#9 | fecha – tema`, `Sesión 5: …`, `SESIÓN #14 …`, `SESIÓN # 1 ETAPA 2 …`, `PO-25002-SAI-Sesión #34`, `PIC-25002-Alphaqueb-Sesión interna #9`, `DAILY SYNC: …` sin número) y con eventos repetidos por calendarios duplicados.
+**Operaciones → Sesiones → "Recontar y ordenar"** (propietario/Dirección) hace, con vista previa antes de aplicar:
+1. **Deduplica** sesiones repetidas (mismo día, hora y tema normalizado), conservando la que tiene transcripción/acuerdos y marcando las demás como duplicadas.
+2. **Cuenta las sesiones reales** de cada proyecto y las **renumera 1…N en orden cronológico** (folio interno de Alphaqueb), conservando el **título original** de Calendar.
+3. Reconoce el tipo de sesión por el título (Daily Sync, Retrospectiva, Capacitación, Demo/Validación, Levantamiento…) y respeta el **consecutivo del cliente** (PO) sin tocarlo.
+4. Deja el proyecto listo para continuar: `session_seq = N` y próximo folio `N+1` con la nomenclatura profesional.
+La detección de proyecto sigue la regla real de negocio: SAI manda sobre Creattivo (Creattivo TI es aliado dentro del proyecto SAI), luego Stonia/SOM, Hexágonos y Creattivo TI; los prospectos (AXE, CEN Systems) se omiten.

@@ -38,7 +38,8 @@ export default function SessionWizard({ types, projects, defaultProject, onCreat
   const folio = useMemo(() => {
     const p = projects.find((x: any) => x.project === project?.name)
     if (!p || !type) return ''
-    return p.po ? `${p.po}-${p.prefix || ''}-Sesión #${(p.seq || 0) + 1} - ${type.name}`
+    return p.scheme === 'cliente' && p.po
+      ? `${p.po}-${p.prefix || ''}-Sesión #${(p.client_seq || 0) + 1} - ${type.name}`
       : `SESIÓN #${(p.seq || 0) + 1}– ${p.prefix || '…'}– ${type.name.toUpperCase()} | ${date.split('-').reverse().join('/')}`
   }, [projects, project, type, date])
 
@@ -74,7 +75,7 @@ export default function SessionWizard({ types, projects, defaultProject, onCreat
     <div className="card wizard">
       <div className="wz-head">
         <div className="wz-steps"><Step n={1} label="Proyecto y tipo" /><Step n={2} label="Cuándo" /><Step n={3} label="Contexto e invitados" /></div>
-        {folio && <div className="wz-folio" title="Folio que se asignará"><span>Folio</span><b>{folio}</b></div>}
+        {folio && <div className="wz-folio" title="Así se titulará la sesión"><span>{projects.find((x: any) => x.project === project?.name)?.scheme === 'cliente' ? 'Título (consecutivo del cliente)' : 'Folio'}</span><b>{folio}</b></div>}
       </div>
 
       {step === 1 && (

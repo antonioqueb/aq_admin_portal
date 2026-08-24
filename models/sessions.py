@@ -35,7 +35,12 @@ class OpsProjectSessions(models.Model):
 
     session_prefix = fields.Char(string="Prefijo de sesiones", help="GRUPO del título: SOMGROUP, SOMCABO, GETTING, CREATTIVO, HMX…")
     session_seq = fields.Integer(string="Última sesión (#)", default=0)
-    session_po = fields.Char(string="Referencia PO (formato SAI)", help="Si se define (p. ej. PO-25002), el folio usa 'PO-25002-SAI-Sesión #n'.")
+    session_po = fields.Char(string="Referencia del cliente (PO)", help="Referencia del cliente, p. ej. PO-25002. Su consecutivo es del cliente, no nuestro.")
+    folio_scheme = fields.Selection([("interno", "Nuestro consecutivo (SESIÓN #n– SERIE– TIPO)"),
+                                     ("cliente", "Consecutivo del cliente (PO-…-Sesión #n)")], default="interno", required=True,
+                                    string="Nomenclatura del título", help="Con qué numeración se titula la sesión ante el cliente. El folio interno de Alphaqueb siempre se lleva aparte.")
+    client_seq = fields.Integer(string="Última sesión del consecutivo del cliente", default=0,
+                                help="Numeración que lleva el cliente (p. ej. SAI). No es nuestro folio interno.")
     group_email = fields.Char(string="Grupo de correo del cliente", help="Opcional: lista/grupo (p. ej. odoo@cliente.com) que se invita siempre.")
     drive_folder_id = fields.Char(string="Carpeta de Drive del proyecto", help="Si se define, los documentos del proyecto se guardan ahí. Si se deja vacío, se crea Alphaops/<Proyecto>.")
     drive_folder_url = fields.Char(string="Enlace de la carpeta", compute="_compute_folder_url")
@@ -59,19 +64,33 @@ class OpsProjectSessions(models.Model):
         for p in self:
             p.session_count = self.env["aq.ops.meeting"].search_count([("project_id", "=", p.id)])
 
-    def folios_usados(self):
-        """Todos los folios ya ocupados por el proyecto: el campo folio y el número embebido en el título."""
+    def folios_usados(self, kind="interno"):
+        """Folios ocupados. kind='interno' → consecutivo de Alphaqueb; kind='cliente' → consecutivo del cliente."""
         self.ensure_one()
         Meeting = self.env["aq.ops.meeting"].sudo()
         usados = set()
         for m in Meeting.search([("project_id", "=", self.id)]):
-            if m.folio:
-                usados.add(m.folio)
+            info = Meeting.parse_folio(m.name)
+            if kind == "cliente":
+                if m.client_folio:
+                    usados.add(m.client_folio)
+                elif info["client_folio"]:
+                    usados.add(info["client_folio"])
             else:
-                f = Meeting.parse_folio(m.name)[0]
-                if f:
-                    usados.add(f)
+                if m.folio:
+                    usados.add(m.folio)
+                elif info["folio"]:
+                    usados.add(info["folio"])
         return usados
+
+    def next_client_number(self):
+        """Siguiente número del consecutivo que lleva el cliente (no es nuestro folio)."""
+        self.ensure_one()
+        usados = self.folios_usados("cliente")
+        n = max([self.client_seq or 0] + list(usados) or [0]) + 1
+        while n in usados:
+            n += 1
+        return n
 
     def next_folio_number(self):
         """Siguiente consecutivo respetando el histórico: continúa del folio más alto ya usado."""
@@ -82,31 +101,39 @@ class OpsProjectSessions(models.Model):
             n += 1
         return n
 
-    def next_folio(self, stype_name, when, folio=None):
-        """Folio y título con la nomenclatura histórica real del proyecto."""
+    def next_folio(self, stype_name, when, folio=None, client_folio=None):
+        """Devuelve (folio interno, folio del cliente, título). El título usa la nomenclatura acordada con el cliente."""
         self.ensure_one()
         n = folio or self.next_folio_number()
         prefix = (self.session_prefix or (self.partner_id.name or "SESION").split()[0].upper())[:12]
-        if self.session_po:
-            title = "%s-%s-Sesión #%d - %s" % (self.session_po, prefix, n, stype_name)
+        cn = 0
+        if self.folio_scheme == "cliente" and self.session_po:
+            cn = client_folio or self.next_client_number()
+            title = "%s-%s-Sesión #%d - %s" % (self.session_po, prefix, cn, stype_name)
         else:
             title = "SESIÓN #%d– %s– %s | %s" % (n, prefix, stype_name.upper(), when.strftime("%d/%m/%Y"))
-        return n, title
+        return n, cn, title
 
     def action_assign_missing_folios(self):
-        """Integra al consecutivo las sesiones del proyecto que aún no tienen folio (en orden cronológico)."""
+        """Integra al consecutivo INTERNO de Alphaqueb las sesiones que aún no lo tienen (orden cronológico).
+        No toca el consecutivo del cliente ni renombra sesiones tituladas con la referencia del cliente."""
         Meeting = self.env["aq.ops.meeting"].sudo()
         total = 0
         for p in self:
-            sin = Meeting.search([("project_id", "=", p.id), ("folio", "in", (False, 0))], order="date asc")
-            for m in sin:
-                f = Meeting.parse_folio(m.name)[0]
-                if f and f not in p.folios_usados():
-                    m.with_context(aq_skip_activity=True).write({"folio": f})
-                else:
-                    m.with_context(aq_skip_activity=True).write({"folio": p.next_folio_number()})
+            for m in Meeting.search([("project_id", "=", p.id), ("folio", "in", (False, 0))], order="date asc, id asc"):
+                info = Meeting.parse_folio(m.name)
+                usados = p.folios_usados("interno")
+                n = info["folio"] if (info["folio"] and info["folio"] not in usados) else p.next_folio_number()
+                vals = {"folio": n}
+                if info["client_folio"] and not m.client_folio:
+                    vals["client_folio"] = info["client_folio"]
+                m.with_context(aq_skip_activity=True).write(vals)
+                if n > (p.session_seq or 0):
+                    p.with_context(aq_skip_activity=True).write({"session_seq": n})
                 total += 1
-            p.with_context(aq_skip_activity=True).write({"session_seq": max([p.session_seq or 0] + list(p.folios_usados() or [0]))})
+            cli = p.folios_usados("cliente")
+            if cli and max(cli) > (p.client_seq or 0):
+                p.with_context(aq_skip_activity=True).write({"client_seq": max(cli)})
         return total
 
 
@@ -120,6 +147,9 @@ class OpsMeetingSession(models.Model):
     summary_doc_url = fields.Char(string="Resumen en Google Docs", readonly=True)
     summary_sent = fields.Boolean(readonly=True, string="Resumen enviado por correo")
     imported = fields.Boolean(string="Importada del histórico", readonly=True)
+    original_title = fields.Char(string="Título original en Calendar", readonly=True)
+    duplicate_of_id = fields.Many2one("aq.ops.meeting", string="Duplicado de", readonly=True)
+    client_folio = fields.Integer(string="# del consecutivo del cliente", index=True, help="Numeración que lleva el cliente (p. ej. PO-25002-SAI-Sesión #45). No es nuestro folio.")
     followups_log = fields.Text(string="Seguimiento generado", readonly=True)
     followups_count = fields.Integer(string="Elementos de seguimiento", readonly=True)
 
@@ -179,9 +209,7 @@ class OpsMeetingSession(models.Model):
     def generate_session(self, project, stype, start_dt, duration=None, extra_emails=None, agenda=None, user=None, attendees=None, send_invites=True, context_note=None, share_note=None):
         project.ensure_one()
         acc = self.env["aq.google.sync"]._account()
-        n, title = project.next_folio(stype.name, start_dt)
-        if n in project.folios_usados():
-            n, title = project.next_folio(stype.name, start_dt, folio=project.next_folio_number())
+        n, cn, title = project.next_folio(stype.name, start_dt)
         if attendees is not None:
             emails = set(e.strip().lower() for e in attendees if e and "@" in e)
         else:
@@ -207,12 +235,17 @@ class OpsMeetingSession(models.Model):
         meet = ev.get("hangoutLink") or next((p.get("uri") for p in (ev.get("conferenceData", {}).get("entryPoints") or []) if p.get("entryPointType") == "video"), "")
         invited_members = members.filtered(lambda x: x.email and x.email.lower() in emails)
         invited_clients = project.client_contact_ids.filtered(lambda x: x.email and x.email.lower() in emails)
-        m = self.create({"name": title, "project_id": project.id, "date": start_dt, "meeting_type": stype.meeting_type, "session_type_id": stype.id, "folio": n,
+        m = self.create({"name": title, "project_id": project.id, "date": start_dt, "meeting_type": stype.meeting_type, "session_type_id": stype.id, "folio": n, "client_folio": cn or False,
                          "member_ids": [(6, 0, invited_members.ids)], "client_partner_ids": [(6, 0, invited_clients.ids)],
                          "agenda": desc or stype.agenda_template, "location": meet, "google_event_id": ev.get("id"), "meet_code": (ev.get("conferenceData", {}).get("conferenceId") or ""),
                          "client_visible": stype.client_visible})
+        upd = {}
         if n > (project.session_seq or 0):
-            project.with_context(aq_skip_activity=True).write({"session_seq": n})
+            upd["session_seq"] = n
+        if cn and cn > (project.client_seq or 0):
+            upd["client_seq"] = cn
+        if upd:
+            project.with_context(aq_skip_activity=True).write(upd)
         return m, ev
 
     # ------------------------------------------------------------------ post-proceso (transcripción → resumen ejecutivo → Docs → correo → actividades)
@@ -312,28 +345,33 @@ class OpsMeetingSession(models.Model):
 
     @api.model
     def parse_folio(self, title):
-        """Extrae (folio, prefijo, PO) del título con cualquiera de las nomenclaturas usadas por Alphaqueb."""
+        """Distingue las dos numeraciones:
+        · 'PO-25002-SAI-Sesión #45' → consecutivo DEL CLIENTE (client_folio), nunca el nuestro.
+        · 'SESIÓN #175– SOMGROUP– DAILY SYNC' → consecutivo INTERNO de Alphaqueb (folio)."""
         up = (title or "").upper()
         m2 = re.search(r"(PO-\d{4,6})-([A-ZÁÉÍÓÚ]+)-SESI[ÓO]N\s*#\s*(\d+)", up)
         if m2:
-            return int(m2.group(3)), m2.group(2), m2.group(1)
+            return {"folio": 0, "client_folio": int(m2.group(3)), "prefix": m2.group(2), "po": m2.group(1), "scheme": "cliente"}
         m1 = re.search(r"SESI[ÓO]N\s*(?:DE\s+\w+\s+)?#\s*(\d+)\s*[–\-—]*\s*([A-ZÁÉÍÓÚ]+)?", up)
         if m1:
-            return int(m1.group(1)), (m1.group(2) or "").strip(), None
-        return 0, None, None
+            return {"folio": int(m1.group(1)), "client_folio": 0, "prefix": (m1.group(2) or "").strip(), "po": None, "scheme": "interno"}
+        return {"folio": 0, "client_folio": 0, "prefix": None, "po": None, "scheme": None}
 
     def action_assign_folio(self):
-        """Asigna folio a una sesión que no lo tiene, respetando el consecutivo del proyecto."""
+        """Asigna el folio INTERNO de Alphaqueb respetando el consecutivo del proyecto.
+        Si el título lleva la referencia del cliente (PO-…), la conserva tal cual."""
         for m in self:
             if m.folio or not m.project_id:
                 continue
-            f = self.parse_folio(m.name)[0]
-            usados = m.project_id.folios_usados()
-            n = f if (f and f not in usados) else m.project_id.next_folio_number()
+            info = self.parse_folio(m.name)
+            usados = m.project_id.folios_usados("interno")
+            n = info["folio"] if (info["folio"] and info["folio"] not in usados) else m.project_id.next_folio_number()
             vals = {"folio": n}
-            if not re.search(r"#\s*%d\b" % n, m.name or ""):
+            if info["client_folio"] and not m.client_folio:
+                vals["client_folio"] = info["client_folio"]
+            if info["scheme"] is None and m.project_id.folio_scheme == "interno":
                 stype = m.session_type_id.name if m.session_type_id else _("Sesión")
-                _n, titulo = m.project_id.next_folio(stype, m.date or fields.Datetime.now(), folio=n)
+                _n, _cn, titulo = m.project_id.next_folio(stype, m.date or fields.Datetime.now(), folio=n)
                 vals["name"] = titulo
             m.with_context(aq_skip_activity=True).write(vals)
             if n > (m.project_id.session_seq or 0):
@@ -668,48 +706,48 @@ class SessionImport(models.AbstractModel):
                 continue
             start = (ev.get("start") or {}).get("dateTime") or ((ev.get("start") or {}).get("date", "") + "T09:00:00")
             up = title.upper()
-            folio, prefix, po = Meeting.parse_folio(title)
-            hint = self.PREFIX_MAP.get(prefix or "", None)
-            if not hint:
-                for k, v in self.PREFIX_MAP.items():
-                    if k in up:
-                        hint = v; break
-            if not hint:
-                doms = {a.get("email", "").split("@")[-1].lower() for a in ev.get("attendees", [])}
-                hint = next((v for d, v in self.DOMAIN_MAP.items() if d in doms), None)
-            project = self._project(hint) if hint else self.env["aq.ops.project"].sudo()
+            info = Meeting.parse_folio(title)
+            folio, prefix, po, client_folio = info["folio"], info["prefix"], info["po"], info["client_folio"]
+            doms = {a.get("email", "").split("@")[-1].lower() for a in ev.get("attendees", [])}
+            project = self.env["aq.ops.session.normalizer"].detect_project(title, doms)
+            if not project:
+                hint = self.PREFIX_MAP.get(prefix or "", None) or next((v for d, v in self.DOMAIN_MAP.items() if d in doms), None)
+                project = self._project(hint) if hint else self.env["aq.ops.project"].sudo()
             if not project:
                 stats["sin_proyecto"] += 1
                 continue
             stype_name = next((n for k, n in self.TYPE_PATTERNS if k in up), "Seguimiento")
             stype = Types.get(stype_name)
-            vals = {"name": title[:200], "project_id": project.id, "date": fields.Datetime.to_datetime(start[:19].replace("T", " ")), "folio": folio or False,
+            vals = {"name": title[:200], "project_id": project.id, "date": fields.Datetime.to_datetime(start[:19].replace("T", " ")), "folio": folio or False, "client_folio": client_folio or False,
                     "session_type_id": stype.id if stype else False, "meeting_type": stype.meeting_type if stype else "cliente", "google_event_id": ev.get("id"),
                     "meet_code": (ev.get("conferenceData") or {}).get("conferenceId") or "", "location": ev.get("hangoutLink"), "state": "realizada", "imported": True,
-                    "client_visible": True}
+                    "client_visible": True, "original_title": title[:200]}
             existing = Meeting.search([("google_event_id", "=", ev["id"])], limit=1)
             if existing:
-                existing.with_context(aq_skip_activity=True).write({"folio": folio or existing.folio, "session_type_id": vals["session_type_id"] or existing.session_type_id.id, "imported": True})
+                existing.with_context(aq_skip_activity=True).write({"folio": folio or existing.folio, "client_folio": client_folio or existing.client_folio,
+                                                                   "session_type_id": vals["session_type_id"] or existing.session_type_id.id, "imported": True})
                 stats["actualizadas"] += 1
             else:
                 Meeting.create(vals)
                 stats["creadas"] += 1
-            if folio and prefix:
-                key = (project.id, prefix, po)
-                maxseq[key] = max(maxseq.get(key, 0), folio)
+            if prefix and (folio or client_folio):
+                key = (project.id, prefix, po, info["scheme"])
+                maxseq[key] = max(maxseq.get(key, 0), folio or client_folio)
             self.env.cr.commit()
         # secuencias y prefijos por proyecto (el prefijo más reciente gana: STONIA→SOMGROUP)
-        for (pid, prefix, po), n in sorted(maxseq.items(), key=lambda x: x[1]):
+        for (pid, prefix, po, scheme), n in sorted(maxseq.items(), key=lambda x: x[1]):
             p = self.env["aq.ops.project"].sudo().browse(pid)
             vals = {}
-            if n > p.session_seq:
+            if scheme == "cliente":
+                if n > (p.client_seq or 0):
+                    vals["client_seq"] = n
+                if po:
+                    vals["session_po"] = po
+                vals["folio_scheme"] = "cliente"
+            elif n > (p.session_seq or 0):
                 vals["session_seq"] = n
-            if prefix and prefix not in ("STONIA",):
+            if prefix and (prefix not in ("STONIA",) or not p.session_prefix):
                 vals["session_prefix"] = prefix
-            elif prefix and not p.session_prefix:
-                vals["session_prefix"] = prefix
-            if po:
-                vals["session_po"] = po
             if vals:
                 p.with_context(aq_skip_activity=True).write(vals)
         # tarea pendiente: procesar transcripciones históricas
@@ -719,3 +757,141 @@ class SessionImport(models.AbstractModel):
                                                        "description": "<p>Tarea futura: recuperar y procesar con IA las transcripciones/notas de las sesiones importadas del histórico (mapa de sesiones).</p>", "tags": "sesiones,historico"})
         self.env.cr.commit()
         return stats
+
+
+class SessionNormalizer(models.AbstractModel):
+    """Pone orden en el histórico: deduplica sesiones repetidas, reconoce las nomenclaturas usadas a lo largo
+    del tiempo y renumera todo en un consecutivo interno limpio por proyecto (cronológico)."""
+    _name = "aq.ops.session.normalizer"
+    _description = "Alphaops: recuento y orden de sesiones"
+
+    # nomenclaturas encontradas en el histórico de Alphaqueb
+    PATTERNS = [
+        (r"(PO-\d{4,6})-([A-ZÁÉÍÓÚ]+)-SESI[ÓO]N\s*#\s*(\d+)", "cliente"),          # PO-25002-SAI-Sesión #34
+        (r"(PIC-\d{4,6})-[A-ZÁÉÍÓÚ]+-SESI[ÓO]N\s+INTERNA\s*#\s*(\d+)", "interna"),  # PIC-25002-Alphaqueb-Sesión interna #9
+        (r"SESI[ÓO]N\s*#\s*(\d+)", "interno"),                                       # SESIÓN #14 / SESIÓN #03–
+        (r"SESI[ÓO]N\s+(\d+)\s*[:\-]", "interno"),                                   # Sesión 5: Recepción…
+        (r"^\s*#\s*(\d+)\b", "interno"),                                            # #9 | 30/04/2025 – …
+        (r"SESI[ÓO]N\s*#\s*(\d+)\s+ETAPA", "interno"),                              # SESIÓN # 1 ETAPA 2 …
+    ]
+    STOP = ("VISITA", "PROSPECTO", "CEN SYSTEMS", "AXE")
+
+    @staticmethod
+    def norm(txt):
+        t = (txt or "").upper()
+        for a, b in (("Á", "A"), ("É", "E"), ("Í", "I"), ("Ó", "O"), ("Ú", "U"), ("Ñ", "N")):
+            t = t.replace(a, b)
+        t = re.sub(r"SESI[OÓ]N\s*#?\s*\d*", " ", t)
+        t = re.sub(r"\d{1,4}[/-]\d{1,2}[/-]\d{2,4}", " ", t)
+        t = re.sub(r"[^A-Z0-9 ]+", " ", t)
+        return re.sub(r"\s+", " ", t).strip()
+
+    @api.model
+    def detect_project(self, title, attendee_domains=()):
+        """Regla de negocio: SAI manda sobre Creattivo (Creattivo TI es aliado en el proyecto SAI)."""
+        up = self.norm(title)
+        Project = self.env["aq.ops.project"].sudo()
+        def find(hint):
+            return Project.search([("name", "ilike", hint)], limit=1)
+        if any(k in up for k in ("SAI", "MANIFIESTO", "ACOPIO", "CA SAI", "PO 25002")):
+            return find("SAI")
+        if any(k in up for k in ("STONIA", "STONE PROFIT", "SP 0", "SOMGROUP", "SOM ")):
+            return find("Stonia")
+        if any(k in up for k in ("SOMCABO", "SOM CABOS", "CABOS")):
+            return find("SOM Cabos")
+        if any(k in up for k in ("HMX", "HEXAGONOS")):
+            return find("Hexágonos")
+        if "CREATTIVO" in up:
+            return find("Creattivo")
+        if "GETTING" in up:
+            return find("Getting Ready")
+        for d in attendee_domains:
+            for dom, hint in (("somgroup.mx", "Stonia"), ("stonia.com.mx", "Stonia"), ("creattivo.mx", "Creattivo"), ("hexagonosmexicanos.com", "Hexágonos")):
+                if dom in d:
+                    return find(hint)
+        return Project
+
+    @api.model
+    def read_numbering(self, title):
+        """Devuelve (numero, tipo) según la nomenclatura histórica; tipo: cliente | interna | interno | None."""
+        up = (title or "").upper()
+        for rx, kind in self.PATTERNS:
+            m = re.search(rx, up)
+            if m:
+                nums = [g for g in m.groups() if g and g.isdigit()]
+                if nums:
+                    return int(nums[-1]), kind
+        return 0, None
+
+    @api.model
+    def guess_type(self, title):
+        up = self.norm(title)
+        Types = self.env["aq.ops.session.type"].sudo()
+        for key, name in (("DAILY", "Daily Sync"), ("RETROSPECTIVA", "Retrospectiva"), ("CAPACITACION", "Capacitación"), ("ENTREGA", "Entrega"),
+                          ("DEMO", "Validación"), ("DEMOSTRACION", "Validación"), ("VALIDACION", "Validación"), ("PRUEBAS", "Pruebas / UAT"),
+                          ("UAT", "Pruebas / UAT"), ("LEVANTAMIENTO", "Revisión"), ("ROADMAP", "Kickoff"), ("KICK", "Kickoff"),
+                          ("MICROPLANNING", "Seguimiento"), ("SEGUIMIENTO", "Seguimiento"), ("REVISION", "Revisión"), ("PRODUCTIVO", "Producción")):
+            if key in up:
+                return Types.search([("name", "=", name)], limit=1)
+        return Types.search([("name", "=", "Seguimiento")], limit=1)
+
+    # ------------------------------------------------------------------ recuento
+    @api.model
+    def recount(self, project_ids=None, apply=False, dedupe=True):
+        """Cuenta las sesiones reales por proyecto y las renumera 1..N en orden cronológico.
+        apply=False devuelve solo la vista previa. Preserva el título original y el consecutivo del cliente."""
+        Meeting = self.env["aq.ops.meeting"].sudo()
+        Project = self.env["aq.ops.project"].sudo()
+        projects = Project.browse(project_ids) if project_ids else Project.search([])
+        reporte = []
+        for p in projects:
+            sesiones = Meeting.search([("project_id", "=", p.id)], order="date asc, id asc")
+            if not sesiones:
+                continue
+            vistos, unicos, duplicadas = {}, [], []
+            for m in sesiones:
+                clave = (m.date and m.date.strftime("%Y-%m-%d %H:%M")[:15] or str(m.id), self.norm(m.name)[:45])
+                if clave in vistos and dedupe:
+                    previo = vistos[clave]
+                    mejor = max([previo, m], key=lambda x: (bool(x.transcript), bool(x.processed), bool(x.google_event_id), len(x.agreement_ids)))
+                    peor = m if mejor == previo else previo
+                    vistos[clave] = mejor
+                    if mejor != previo:
+                        unicos[unicos.index(previo)] = mejor
+                    duplicadas.append(peor)
+                else:
+                    vistos[clave] = m
+                    unicos.append(m)
+            cambios, n = [], 0
+            for m in unicos:
+                n += 1
+                num, kind = self.read_numbering(m.original_title or m.name)
+                cf = num if kind == "cliente" else (m.client_folio or 0)
+                cambios.append({"id": m.id, "fecha": str(m.date or "")[:16], "titulo": m.name, "folio_actual": m.folio or 0, "folio_nuevo": n, "client": cf})
+                if apply:
+                    vals = {"folio": n, "original_title": m.original_title or m.name}
+                    if cf and cf != m.client_folio:
+                        vals["client_folio"] = cf
+                    if not m.session_type_id:
+                        t = self.guess_type(m.name)
+                        if t:
+                            vals["session_type_id"] = t.id
+                    m.with_context(aq_skip_activity=True).write(vals)
+            if apply:
+                for d in duplicadas:
+                    principal = None
+                    for u in unicos:
+                        if u.date == d.date and self.norm(u.name)[:45] == self.norm(d.name)[:45]:
+                            principal = u; break
+                    d.with_context(aq_skip_activity=True).write({"active": False, "duplicate_of_id": principal.id if principal else False})
+                cli = p.folios_usados("cliente")
+                vals = {"session_seq": n}
+                if cli:
+                    vals["client_seq"] = max(cli)
+                    vals["folio_scheme"] = "cliente" if p.session_po else p.folio_scheme
+                p.with_context(aq_skip_activity=True).write(vals)
+                self.env.cr.commit()
+            reporte.append({"project_id": p.id, "project": p.name, "prefijo": p.session_prefix, "total_previo": len(sesiones), "duplicadas": len(duplicadas),
+                            "sesiones": n, "proximo_folio": n + 1, "consecutivo_cliente": max(p.folios_usados("cliente") or [0]) or None,
+                            "muestra": cambios[:5] + ([{"...": "..."}] if len(cambios) > 5 else []) + cambios[-3:] if len(cambios) > 8 else cambios})
+        return {"aplicado": apply, "proyectos": reporte}

@@ -595,12 +595,13 @@ class OpsApi(http.Controller):
         projects = {}
         out = []
         for m in rows:
-            out.append({"id": m.id, "folio": m.folio or None, "name": m.name, "project": m.project_id.name, "project_id": m.project_id.id, "date": str(m.date or ""),
+            out.append({"id": m.id, "folio": m.folio or None, "client_folio": m.client_folio or None, "name": m.name, "project": m.project_id.name, "project_id": m.project_id.id, "date": str(m.date or ""),
                         "type": m.session_type_id.name or dict(m._fields["meeting_type"].selection).get(m.meeting_type), "state": m.state, "processed": m.processed,
                         "has_transcript": bool(m.transcript), "doc": m.summary_doc_url or m.google_doc_url, "meet": m.location, "imported": m.imported,
                         "agreements": m.agreement_count, "followups": m.followups_count, "followups_log": m.followups_log})
             pr = projects.setdefault(m.project_id.id, {"project": m.project_id.name, "prefix": m.project_id.session_prefix, "seq": max(m.project_id.session_seq or 0, m.project_id.next_folio_number() - 1),
-                                                       "po": m.project_id.session_po, "total": 0, "processed": 0, "pending_transcript": 0, "sin_folio": 0})
+                                                       "po": m.project_id.session_po, "scheme": m.project_id.folio_scheme, "client_seq": m.project_id.client_seq,
+                                                       "total": 0, "processed": 0, "pending_transcript": 0, "sin_folio": 0})
             pr["total"] += 1
             pr["sin_folio"] += 0 if m.folio else 1
             pr["processed"] += 1 if m.processed else 0
@@ -629,6 +630,20 @@ class OpsApi(http.Controller):
         total = projects.with_context(portal_user_id=user.id).action_assign_missing_folios()
         _log(user, "action", resource="ops:meetings", summary=_("Folios asignados: %s") % total)
         return _json({"assigned": total, "projects": [{"project": p.name, "prefix": p.session_prefix, "seq": p.session_seq, "next": p.next_folio_number()} for p in projects]})
+
+    @portal_route(OPS + "/sessions/recount", methods=["POST"], app="ops")
+    def session_recount(self, user):
+        """Recuento profesional: deduplica, cuenta las sesiones reales y renumera 1..N por proyecto."""
+        if _effective_role(user) not in ("platform_owner", "ops_director"):
+            return _error(_("Solo propietario/Dirección de Operaciones"), 403)
+        b = _body()
+        ids = [int(b["project_id"])] if b.get("project_id") else None
+        if ids:
+            _get(OPS_RESOURCES["projects"], user, ids[0])
+        out = request.env["aq.ops.session.normalizer"].sudo().with_context(portal_user_id=user.id).recount(ids, apply=bool(b.get("apply")), dedupe=b.get("dedupe", True))
+        if b.get("apply"):
+            _log(user, "action", resource="ops:meetings", summary=_("Recuento de sesiones aplicado"), changes=out)
+        return _json(out)
 
     @portal_route(OPS + "/sessions/export", methods=["POST"], app="ops")
     def session_export(self, user):
