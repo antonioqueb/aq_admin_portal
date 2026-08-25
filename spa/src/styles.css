@@ -30,6 +30,8 @@ table.list th{text-align:left;padding:8px 10px;border-bottom:1px solid var(--bor
 table.list td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top}
 table.list tr.row:hover td{background:rgba(185,232,86,.05);cursor:pointer}
 table.list td.num,table.list th.num{text-align:right;font-variant-numeric:tabular-nums}
+table.list th.col-name,table.list td.col-name{min-width:320px;width:34%}
+table.list td.col-name{white-space:normal;line-height:1.35;font-weight:500}
 .table-wrap{overflow-x:auto}
 .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-family:var(--font-tech);font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;background:#2a2a32;color:#bfc0c8;white-space:nowrap}
 .badge.ok{background:rgba(185,232,86,.15);color:var(--ok)}.badge.warn{background:rgba(245,197,66,.15);color:var(--warn)}.badge.err{background:rgba(255,107,107,.15);color:var(--danger)}.badge.info{background:rgba(59,130,246,.18);color:#8ab4ff}.badge.primary{background:rgba(114,63,160,.35);color:var(--purple-bright)}
