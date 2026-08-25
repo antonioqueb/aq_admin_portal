@@ -22,6 +22,14 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.modify", "https://www.googleapi
 MEET_SENDERS = ("meet-recordings-noreply@google.com", "gemini-noreply@google.com", "calendar-notification@google.com")
 # "Plantilla Membretada Pro" (Drive de antonio@alphaqueb.com): membrete oficial sobre el que se maquetan los documentos.
 DOC_TEMPLATE_DEFAULT = "1ep_RM47LalrjXY5D9XLou60AF5DTSqc2fop8t9Sw2EE"
+# Asuntos que genera el propio portal: jamás deben volver a entrar al pipeline (evita resúmenes de resúmenes).
+PORTAL_SUBJECT_RE = re.compile(r"^\s*(resumen ejecutivo|minuta)\s*[·:\-–]", re.I)
+PORTAL_MAIL_HEADERS = {"X-Alphaqueb-Portal": "1"}
+
+
+def _strip_portal_prefix(title):
+    """Quita prefijos acumulables ('Resumen ejecutivo · Resumen ejecutivo · …') del título de una sesión."""
+    return re.sub(r"^(\s*(resumen ejecutivo|minuta)\s*[·:\-–]\s*)+", "", title or "", flags=re.I).strip()
 
 
 def _extract_attachment_text(filename, raw):
@@ -411,6 +419,9 @@ class GoogleMessage(models.Model):
         for m in self:
             if m.state != "nuevo":
                 continue
+            if PORTAL_SUBJECT_RE.match(m.subject or ""):  # correo del propio portal atrapado en la bandeja
+                m.write({"state": "ignorado", "category": "info", "ai_action": _("Correo generado por el portal; se ignora para evitar bucles.")})
+                continue
             if m.date and m.date < since:
                 if not m.ai_action:
                     m.write({"ai_action": _("Anterior al inicio de la automatización; use las acciones de la ficha si desea procesarlo.")})
@@ -507,7 +518,7 @@ class GoogleMessage(models.Model):
                 except Exception as e:  # noqa
                     _logger.info("vinculación: %s", e)
             if not linked:
-                title = re.sub(r"^(notes|notas|transcripci[óo]n de meet)\s*[:\-–]*\s*", "", m.subject or _("Sesión"), flags=re.I).strip()[:150]
+                title = re.sub(r"^(notes|notas|transcripci[óo]n de meet)\s*[:\-–]*\s*", "", _strip_portal_prefix(m.subject) or _("Sesión"), flags=re.I).strip()[:150]
                 d = Session.build_exec_summary(title, m.project_id.name if m.project_id else None, m.date, text)
                 html = Session.exec_html(title, m.project_id.name if m.project_id else None, m.date, None, d)
                 url = False
@@ -521,7 +532,8 @@ class GoogleMessage(models.Model):
                 body_mail = Brand.wrap(_("Resumen ejecutivo · %s") % title, html + (("<p><a href='%s'>Mi documento (plantilla)</a></p>" % url) if url else "") + (("<p><a href='%s'>Notas originales de Gemini</a></p>" % m.source_doc_url) if m.source_doc_url else ""),
                                        _("Ver en la bandeja"), Brand.portal_url() + "/ops/r/google_inbox/%d" % m.id)
                 for u in self.env["aq.portal.user"].sudo().search([("role", "=", "direccion"), ("active", "=", True)]):
-                    self.env["mail.mail"].sudo().create({"subject": _("Resumen ejecutivo · %s") % title, "email_to": u.email, "body_html": body_mail}).send()
+                    self.env["mail.mail"].sudo().create({"subject": _("Resumen ejecutivo · %s") % title, "email_to": u.email, "body_html": body_mail,
+                                                         "headers": PORTAL_MAIL_HEADERS}).send()
         return True
 
     def action_assign_and_link(self):
@@ -656,6 +668,10 @@ class GoogleSync(models.AbstractModel):
                 continue
             full = acc.gmail_get(ref["id"])
             headers = {h["name"].lower(): h["value"] for h in full.get("payload", {}).get("headers", [])}
+            if self._is_portal_mail(acc, headers, full.get("labelIds", [])):
+                if label_done:  # se marca como procesado para no volver a leerlo, pero no entra a la bandeja
+                    acc.gmail_add_label(ref["id"], label_done)
+                continue
             body = acc.gmail_text(full.get("payload", {}))
             parts = acc.gmail_attachment_parts(full.get("payload", {}))
             msg = {"from": headers.get("from", ""), "to": headers.get("to", ""), "subject": headers.get("subject", "(sin asunto)"), "body": body, "labels": full.get("labelIds", [])}
@@ -689,6 +705,21 @@ class GoogleSync(models.AbstractModel):
             self.env.cr.commit()
         acc.write({"last_gmail_sync": fields.Datetime.now()})
         return n
+
+    @api.model
+    def _is_portal_mail(self, acc, headers, labels):
+        """Correo emitido por el propio portal o por la cuenta sincronizada: cabecera propia, etiqueta SENT de Gmail,
+        remitente igual a la cuenta conectada o al remitente de sistema de Odoo, o asunto con prefijo del portal."""
+        if headers.get("x-alphaqueb-portal"):
+            return True
+        if "SENT" in (labels or []):
+            return True
+        sender = parseaddr(headers.get("from", ""))[1].lower()
+        icp = self.env["ir.config_parameter"].sudo()
+        own = {e.lower() for e in (acc.email or "", icp.get_param("mail.default.from") or "", icp.get_param("mail.catchall.alias") or "") if e and "@" in e}
+        if sender and sender in own:
+            return True
+        return bool(PORTAL_SUBJECT_RE.match(headers.get("subject", "") or ""))
 
     @api.model
     def route(self, rec, msg):
@@ -922,7 +953,7 @@ class GoogleSync(models.AbstractModel):
     def meeting_from_notes(self, msg):
         """Convierte notas/transcripción (correo de Meet, doc de Gemini o transcripción) en una reunión de Operaciones y pide al copiloto las propuestas."""
         Meeting = self.env["aq.ops.meeting"].sudo()
-        title = re.sub(r"^(notes|notas|notas de la reunión|resumen de la reunión|transcripción)\s*[:\-–]\s*", "", msg.subject or "", flags=re.I).strip() or _("Reunión")
+        title = re.sub(r"^(notes|notas|notas de la reunión|resumen de la reunión|transcripción)\s*[:\-–]\s*", "", _strip_portal_prefix(msg.subject), flags=re.I).strip() or _("Reunión")
         title = re.sub(r"\s*[-–]\s*(Notes|Notas) (by|de|por) Gemini.*$", "", title, flags=re.I).strip()
         m = Meeting.search([("google_event_id", "!=", False), ("name", "ilike", title[:40]), ("date", ">=", (msg.date or fields.Datetime.now()) - timedelta(days=2)), ("date", "<=", (msg.date or fields.Datetime.now()) + timedelta(days=1))], limit=1)
         if not m:

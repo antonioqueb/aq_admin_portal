@@ -49,10 +49,11 @@ class OpsMeeting(models.Model):
         for m in self:
             rows = "".join("<li><b>%s</b> — %s, %s</li>" % (a.name, a.owner_id.name or a.owner_partner_id.name or "-", a.due_date or "-") for a in m.agreement_ids)
             html = Brand.wrap(_("Minuta: %s") % m.name, "<p>%s</p>%s<h4>%s</h4><ul>%s</ul>" % (m.date, m.minutes or "", _("Acuerdos"), rows), _("Ver en Operaciones"), Brand.portal_url() + "/ops/r/meetings/%d" % m.id)
+            hdr = {"X-Alphaqueb-Portal": "1"}  # el sincronizador de Gmail lo reconoce y no lo reprocesa
             for mem in m.member_ids.filtered("email"):
-                self.env["mail.mail"].sudo().create({"subject": _("Minuta: %s") % m.name, "email_to": mem.email, "body_html": html}).send()
+                self.env["mail.mail"].sudo().create({"subject": _("Minuta: %s") % m.name, "email_to": mem.email, "body_html": html, "headers": hdr}).send()
             for c in m.client_partner_ids.filtered("email"):
-                self.env["mail.mail"].sudo().create({"subject": _("Minuta: %s") % m.name, "email_to": c.email, "body_html": html}).send()
+                self.env["mail.mail"].sudo().create({"subject": _("Minuta: %s") % m.name, "email_to": c.email, "body_html": html, "headers": hdr}).send()
             m.write({"state": "minuta_enviada"})
         return True
 

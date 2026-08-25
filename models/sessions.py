@@ -745,6 +745,7 @@ class OpsMeetingSession(models.Model):
                           _("Ver sesión en Operaciones"), Brand.portal_url("meetings", self.id))
         for e in sorted(emails):
             self.env["mail.mail"].sudo().create({"subject": _("Resumen ejecutivo · %s") % self.name, "email_to": e, "body_html": body,
+                                                 "headers": {"X-Alphaqueb-Portal": "1"},  # el sincronizador de Gmail lo reconoce y no lo reprocesa
                                                  "attachment_ids": attachments}).send()
         self.with_context(aq_skip_activity=True).write({"summary_sent": True})
 
