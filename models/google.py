@@ -32,6 +32,21 @@ def _strip_portal_prefix(title):
     return re.sub(r"^(\s*(resumen ejecutivo|minuta)\s*[·:\-–]\s*)+", "", title or "", flags=re.I).strip()
 
 
+def _norm_session_title(title):
+    """Forma canónica del nombre de sesión para comparar EXACTAMENTE el título de unas notas/transcripción de Meet
+    con el nombre que el sistema generó al convocar la sesión. Quita los decorados que agrega Google
+    ('Notes:', ': 2026/08/25 10:11 CST - Notas de Gemini', '- Transcripción') y normaliza espacios y guiones."""
+    t = _strip_portal_prefix(title)
+    t = re.sub(r"^(notes|notas|notas de la reuni[óo]n|resumen de la reuni[óo]n|transcripci[óo]n( de meet)?)\s*[:\-–]\s*", "", t, flags=re.I)
+    t = re.sub(r"\s*:\s*\d{4}/\d{2}/\d{2}\s+\d{1,2}:\d{2}\s*[A-Za-z]{2,5}\s*[-–]\s*(notas|notes).*$", "", t, flags=re.I)
+    t = re.sub(r"\s*[-–]\s*(notes|notas)(\s+(by|de|por)\s+gemini)?\s*$", "", t, flags=re.I)
+    t = re.sub(r"\s*[-–]\s*transcripci[óo]n\s*$", "", t, flags=re.I)
+    t = t.replace(" ", " ").lower()
+    t = re.sub(r"\s*[–\-—]\s*", "–", t)
+    t = re.sub(r"\s*\|\s*", "|", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
 def _extract_attachment_text(filename, raw):
     """Texto legible de un adjunto (PDF, texto plano o DOCX); cadena vacía si no se puede extraer."""
     name = (filename or "").lower()
@@ -384,28 +399,24 @@ class GoogleMessage(models.Model):
     attachments_text = fields.Text(string="Contenido de adjuntos (extraído)", readonly=True)
     auto_attempts = fields.Integer(string="Intentos de proceso automático", default=0)
 
-    # --- detección de cliente/proyecto por dominios de correo y palabras
+    # --- detección de cliente/proyecto: SOLO por los dominios de correo configurados en cada proyecto
     def _detect(self):
+        """Vinculación determinista. El proyecto se asigna únicamente si el dominio del remitente está en
+        'Dominios de correo del cliente' de un proyecto activo; nada de adivinar por palabras del texto.
+        El cliente/proveedor (para Administración) se toma del proyecto o de una empresa con ese dominio."""
         Partner = self.env["res.partner"].sudo()
         Project = self.env["aq.ops.project"].sudo()
         for m in self:
             emails = re.findall(r"[\w.+-]+@([\w-]+\.[\w.-]+)", (m.sender or "") + " " + (m.recipients or ""))
-            domains = {d.lower() for d in emails if not d.lower().endswith(("alphaqueb.com", "google.com", "gmail.com"))}
-            partner = Partner
-            for d in domains:
-                partner = Partner.search([("is_company", "=", True), "|", ("email", "ilike", "@" + d), ("website", "ilike", d)], limit=1) or Partner.search([("email", "ilike", "@" + d)], limit=1).commercial_partner_id
-                if partner:
-                    break
-            text = ((m.subject or "") + " " + (m.body or "")[:3000]).lower()
-            proj = Project
-            if partner:
-                proj = Project.search([("partner_id", "=", partner.id), ("stage", "not in", ("cerrado",))], limit=1)
-            if not proj:
-                for p in Project.search([("stage", "not in", ("cerrado",))]):
-                    key = p.name.split("·")[0].strip().lower()
-                    if key and len(key) > 3 and key in text:
-                        proj = p; break
-            m.write({"partner_id": partner.id if partner else (proj.partner_id.id if proj else False), "project_id": proj.id if proj else False})
+            domains = {d.lower().strip(".") for d in emails if not d.lower().endswith(("alphaqueb.com", "google.com", "gmail.com"))}
+            proj = Project._by_email_domain(domains) if domains else Project
+            partner = proj.partner_id if proj else Partner
+            if not partner:
+                for d in sorted(domains):
+                    partner = Partner.search([("is_company", "=", True), ("email", "ilike", "@" + d)], limit=1)
+                    if partner:
+                        break
+            m.write({"partner_id": partner.id if partner else False, "project_id": proj.id if proj else False})
 
     # --- proceso automático: cada categoría sabe en qué convertirse sin intervención humana
     AUTO_ACTIONS = {"meeting_notes": "action_process_notes", "request": "action_to_ops_request", "incident": "action_to_ops_incident",
@@ -428,13 +439,21 @@ class GoogleMessage(models.Model):
                 continue
             m.write({"auto_attempts": m.auto_attempts + 1})
             action = self.AUTO_ACTIONS.get(m.category)
-            if m.category == "incident" and not m.project_id:
-                action = "action_to_ops_request"  # sin proyecto no puede haber incidente: entra como solicitud
+            # Política: nada se convierte en trabajo de un proyecto sin dominio configurado, ni en registro
+            # administrativo sin cliente/proveedor conocido. El ruido (promociones, avisos) se ignora solo.
+            if m.category in ("request", "incident") and not m.project_id:
+                m.write({"ai_action": _("Sin proyecto: el dominio del remitente no está configurado en ningún proyecto; no se convierte automáticamente.")})
+                continue
+            if m.category in ("agreement", "invoice", "payable") and not m.partner_id:
+                m.write({"ai_action": _("Remitente sin cliente/proveedor conocido; no se convierte automáticamente.")})
+                continue
             if not action:
+                if m.category in ("info", "other") and not m.project_id and not m.partner_id:
+                    m.write({"state": "ignorado", "ai_action": _("Sin dominio conocido ni acción: ignorado automáticamente.")})
                 continue
             try:
                 with self.env.cr.savepoint():
-                    getattr(m, action)()
+                    getattr(m.with_context(aq_auto=True), action)()
                 if (m.ai_action or "").startswith("Proceso automático pendiente"):
                     m.write({"ai_action": False})
             except Exception as e:  # noqa
@@ -502,16 +521,29 @@ class GoogleMessage(models.Model):
         """Procesa la transcripción SIN requerir proyecto: resumen ejecutivo + documento con la plantilla propia + liga.
         Si logra identificar proyecto/reunión, además la vincula y crea las actividades."""
         Session = self.env["aq.ops.meeting"].sudo()
+        Sync = self.env["aq.google.sync"]
+        auto = bool(self.env.context.get("aq_auto"))
         for m in self:
+            # Trigger oficial: el nombre de las notas/transcripción coincide EXACTAMENTE con una sesión generada por el sistema.
+            meeting = Sync._meeting_for_title(m.subject, m.date)
+            if meeting:
+                m.write({"project_id": meeting.project_id.id, "partner_id": meeting.project_id.partner_id.id})
+            elif auto:
+                m.write({"ai_action": _("El nombre no coincide exactamente con ninguna sesión generada por el sistema; no se procesa automáticamente. "
+                                        "Si corresponde, asigne el proyecto y use 'Vincular al proyecto asignado'.")})
+                continue
             text = m.full_text()
             if not (text or "").strip():
+                if auto:
+                    m.write({"ai_action": _("Sin transcripción ni documento legible.")})
+                    continue
                 raise UserError(_("El mensaje no contiene transcripción ni documento legible."))
             if not m.project_id:
                 m._detect()
             linked = False
             if m.project_id:
                 try:
-                    meeting = self.env["aq.google.sync"].meeting_from_notes(m)
+                    meeting = Sync.meeting_from_notes(m)
                     m._done(meeting, _("Reunión: %s") % meeting.name)
                     m.write({"exec_summary": meeting.exec_summary, "summary_doc_url": meeting.summary_doc_url or meeting.google_doc_url})
                     linked = True
@@ -734,7 +766,7 @@ class GoogleSync(models.AbstractModel):
                 rec.write({"ai_action": _("Sesión anterior al inicio de la automatización; use 'Procesar transcripción' si desea el resumen.")})
                 return
             try:
-                rec.action_process_notes()
+                rec.with_context(aq_auto=True).action_process_notes()
             except Exception as e:  # noqa
                 _logger.warning("Notas de Meet: %s", e)
             return
@@ -773,15 +805,10 @@ class GoogleSync(models.AbstractModel):
             vals = {"app": d.get("app") if d.get("app") in ("admin", "ops") else "ops",
                     "category": d.get("category") if d.get("category") in dict(rec._fields["category"].selection) else "other",
                     "ai_summary": d.get("summary"), "ai_action": d.get("action"), "routed_by": "ai"}
-            if d.get("project") and not rec.project_id:
-                proj = self.env["aq.ops.project"].sudo().search([("name", "ilike", str(d["project"])[:60]), ("stage", "not in", ("cerrado",))], limit=1)
-                if proj:
-                    vals["project_id"] = proj.id
-                    vals.setdefault("partner_id", proj.partner_id.id)
-            if d.get("partner") and not rec.partner_id and "partner_id" not in vals:
-                partner = self.env["res.partner"].sudo().search([("name", "ilike", str(d["partner"])[:60])], limit=1)
-                if partner:
-                    vals["partner_id"] = partner.id
+            # La pista de proyecto/cliente de la IA es solo informativa: la vinculación real depende de los dominios configurados.
+            hint = ", ".join(x for x in (d.get("project"), d.get("partner")) if x)
+            if hint and not rec.project_id:
+                vals["ai_summary"] = ((d.get("summary") or "") + _("\nPosible relación (sin vincular): %s") % hint).strip()
             rec.write(vals)
             if auto_all:
                 rec._auto_convert()
@@ -885,9 +912,8 @@ class GoogleSync(models.AbstractModel):
             m = Meeting.search([("meet_record", "=", rec["name"])], limit=1)
             if m:
                 continue
+            # Solo el código de Meet de una sesión convocada por el sistema vincula la grabación (sin adivinar por horario).
             m = Meeting.search([("meet_code", "=", code)], order="date desc", limit=1) if code else Meeting
-            if not m and start:
-                m = Meeting.search([("date", ">=", fields.Datetime.to_datetime(start) - timedelta(hours=2)), ("date", "<=", fields.Datetime.to_datetime(start) + timedelta(hours=2))], limit=1)
             text = acc.meet_transcript_text(rec["name"])
             if not text.strip():
                 continue
@@ -900,10 +926,7 @@ class GoogleSync(models.AbstractModel):
                 if is_old:
                     msg.write({"ai_action": _("Sesión anterior al inicio de la automatización; use 'Procesar transcripción' si desea el resumen.")})
                     continue
-                try:
-                    msg.action_process_notes()
-                except Exception as e:  # noqa
-                    _logger.info("Meet standalone: %s", e)
+                msg.write({"ai_action": _("Grabación de Meet sin sesión del sistema asociada (código de reunión desconocido); no se procesa automáticamente.")})
                 continue
             m.with_context(aq_skip_activity=True).write({"transcript": text, "meet_record": rec["name"], "state": "realizada" if m.state == "programada" else m.state})
             if is_old:  # la transcripción se conserva como evidencia, pero sin proceso IA ni correos retroactivos
@@ -942,7 +965,7 @@ class GoogleSync(models.AbstractModel):
                 n += 1
                 continue
             try:
-                rec.action_process_notes()
+                rec.with_context(aq_auto=True).action_process_notes()
             except Exception as e:  # noqa
                 rec.write({"ai_action": str(e)[:200]})
             n += 1
@@ -950,12 +973,29 @@ class GoogleSync(models.AbstractModel):
         return n
 
     @api.model
+    def _meeting_for_title(self, title, date=None):
+        """Sesión del sistema cuyo nombre coincide EXACTAMENTE (forma canónica) con el título de las notas/transcripción.
+        Es el único trigger que vincula notas de Meet a un proyecto; sin coincidencia exacta no hay vinculación."""
+        Meeting = self.env["aq.ops.meeting"].sudo()
+        key = _norm_session_title(title)
+        if not key:
+            return Meeting
+        head = re.split(r"[–|]", key)[0].strip()[:30]
+        dom = [("name", "ilike", head)] if head else []
+        if date:
+            dom += [("date", ">=", date - timedelta(days=45)), ("date", "<=", date + timedelta(days=45))]
+        for c in Meeting.search(dom, order="date desc", limit=200):
+            if _norm_session_title(c.name) == key:
+                return c
+        return Meeting
+
+    @api.model
     def meeting_from_notes(self, msg):
         """Convierte notas/transcripción (correo de Meet, doc de Gemini o transcripción) en una reunión de Operaciones y pide al copiloto las propuestas."""
         Meeting = self.env["aq.ops.meeting"].sudo()
         title = re.sub(r"^(notes|notas|notas de la reunión|resumen de la reunión|transcripción)\s*[:\-–]\s*", "", _strip_portal_prefix(msg.subject), flags=re.I).strip() or _("Reunión")
         title = re.sub(r"\s*[-–]\s*(Notes|Notas) (by|de|por) Gemini.*$", "", title, flags=re.I).strip()
-        m = Meeting.search([("google_event_id", "!=", False), ("name", "ilike", title[:40]), ("date", ">=", (msg.date or fields.Datetime.now()) - timedelta(days=2)), ("date", "<=", (msg.date or fields.Datetime.now()) + timedelta(days=1))], limit=1)
+        m = self._meeting_for_title(msg.subject, msg.date)
         if not m:
             if not msg.project_id:
                 msg._detect()
@@ -1133,6 +1173,22 @@ class OpsMeetingGoogle(models.Model):
 
 class OpsProjectGoogle(models.Model):
     _inherit = "aq.ops.project"
+
+    email_domains = fields.Char(string="Dominios de correo del cliente",
+                                help="Dominios separados por coma (p. ej. cliente.com, cliente.mx). Únicamente el correo que llega desde "
+                                     "estos dominios se vincula automáticamente a este proyecto; sin dominio configurado, nada se vincula solo.")
+
+    @api.model
+    def _by_email_domain(self, domains):
+        """Proyecto activo cuyo 'Dominios de correo' contiene alguno de los dominios dados (o un subdominio de ellos)."""
+        domains = {(d or "").lower().lstrip("@").strip() for d in (domains or []) if d}
+        if not domains:
+            return self.browse()
+        for p in self.sudo().search([("stage", "not in", ("cerrado",)), ("email_domains", "!=", False)], order="id"):
+            conf = {c.strip().lower().lstrip("@") for c in (p.email_domains or "").split(",") if c.strip()}
+            if any(d == c or d.endswith("." + c) for d in domains for c in conf):
+                return p
+        return self.browse()
 
     def action_export_sheet(self):
         url = self.env["aq.google.sync"].export_portfolio_sheet()
