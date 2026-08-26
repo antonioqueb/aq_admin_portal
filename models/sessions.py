@@ -344,7 +344,7 @@ class OpsMeetingSession(models.Model):
         out = self.env["aq.ai.prompt"].sudo().render("session_exec_summary", {
             "titulo": name, "proyecto": project_name or "(por identificar)", "fecha": str(date or ""),
             "participantes": roster or "(no registrados)", "transcripcion": text[:14000]})
-        if isinstance(out, dict) and (out.get("resumen") or out.get("acuerdos")):
+        if isinstance(out, dict) and (out.get("resumen") or out.get("acuerdos")) and not AI.looks_meta(out.get("resumen") or ""):
             return out
         out = AI.chat_json("Eres el redactor ejecutivo de Alphaqueb Consulting. Redacta en español profesional, prosa natural (nunca JSON ni Markdown dentro de los textos). "
                            "Devuelve exclusivamente un objeto JSON con esta forma: "
@@ -355,7 +355,7 @@ class OpsMeetingSession(models.Model):
                            "En \"responsable\": usa exactamente uno de los participantes listados (o 'Por asignar'). En \"fecha\": resuelve expresiones como 'el viernes' a formato AAAA-MM-DD tomando como referencia la fecha de la sesión; si no se mencionó, 'Por definir'. "
                            "Sesión: %s · Proyecto: %s · Fecha: %s.\nParticipantes:\n%s\nTranscripción:\n%s"
                            % (name, project_name or "(por identificar)", date, roster or "(no registrados)", text[:14000]), max_tokens=2800, tier="deep")
-        if out:
+        if isinstance(out, dict) and out and not AI.looks_meta(out.get("resumen") or ""):
             return out
         # sin IA: heurística mínima
         h = self.env["aq.ops.ai"]._heuristic_meeting(text)
@@ -678,14 +678,14 @@ class OpsMeetingSession(models.Model):
         if d.get("decisiones"):
             section("Decisiones tomadas"); bullets(d["decisiones"])
         section("Acuerdos y compromisos")
-        acuerdos = d.get("acuerdos") or []
-        if acuerdos:
-            rows = [["Acuerdo / compromiso", "Responsable", "Fecha compromiso"]]
-            for a in acuerdos:
-                if isinstance(a, dict):
-                    rows.append([a.get("acuerdo") or "", a.get("responsable") or "Por asignar", a.get("fecha") or "Por definir"])
-                else:
-                    rows.append([str(a), "Por asignar", "Por definir"])
+        rows = [["Acuerdo / compromiso", "Responsable", "Fecha compromiso"]]
+        for a in (d.get("acuerdos") or []):
+            texto = ((a.get("acuerdo") if isinstance(a, dict) else str(a)) or "").strip()
+            if not texto:
+                continue  # filas vacías ("Por asignar / Por definir" sin acuerdo) no van al documento
+            rows.append([texto, (a.get("responsable") if isinstance(a, dict) else None) or "Por asignar",
+                         (a.get("fecha") if isinstance(a, dict) else None) or "Por definir"])
+        if len(rows) > 1:
             blocks.append({"type": "table", "header": True, "rows": rows})
             blocks.append({"type": "spacer", "text": ""})
         else:

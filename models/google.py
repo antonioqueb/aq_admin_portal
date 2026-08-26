@@ -38,6 +38,10 @@ def _norm_session_title(title):
     ('Notes:', ': 2026/08/25 10:11 CST - Notas de Gemini', '- Transcripción') y normaliza espacios y guiones."""
     t = _strip_portal_prefix(title)
     t = re.sub(r"^(notes|notas|notas de la reuni[óo]n|resumen de la reuni[óo]n|transcripci[óo]n( de meet)?)\s*[:\-–]\s*", "", t, flags=re.I)
+    q = re.search(r"[“\"]([^”\"]{6,})[”\"]", t)  # Gemini: Notas: “SESIÓN #178– SOM– DAILY SYNC | 26/08/2026”, 26 ago 2026
+    if q:
+        t = q.group(1)
+    t = re.sub(r",\s*\d{1,2}\s+[a-záéíóú]{3,}\.?\s+\d{4}\s*$", "", t, flags=re.I)
     t = re.sub(r"\s*:\s*\d{4}/\d{2}/\d{2}\s+\d{1,2}:\d{2}\s*[A-Za-z]{2,5}\s*[-–]\s*(notas|notes).*$", "", t, flags=re.I)
     t = re.sub(r"\s*[-–]\s*(notes|notas)(\s+(by|de|por)\s+gemini)?\s*$", "", t, flags=re.I)
     t = re.sub(r"\s*[-–]\s*transcripci[óo]n\s*$", "", t, flags=re.I)
@@ -268,6 +272,47 @@ class GoogleAccount(models.Model):
     def doc_text(self, file_id):
         return self._call("GET", "https://www.googleapis.com/drive/v3/files/%s/export" % file_id, params={"mimeType": "text/plain"})
 
+    def doc_tabs(self, file_id):
+        """[(título de pestaña, texto)] de un Google Doc, incluyendo pestañas anidadas (Docs API con includeTabsContent)."""
+        doc = self.get("https://docs.googleapis.com/v1/documents/%s" % file_id, {"includeTabsContent": "true"})
+
+        def body_text(body):
+            parts = []
+            for el in (body or {}).get("content", []):
+                p = el.get("paragraph")
+                if p:
+                    parts.append("".join(r.get("textRun", {}).get("content", "") for r in p.get("elements", [])))
+                for row in (el.get("table") or {}).get("tableRows", []):
+                    for cell in row.get("tableCells", []):
+                        parts.append(body_text(cell))
+            return "".join(parts)
+
+        out = []
+
+        def walk(tabs):
+            for t in tabs or []:
+                out.append(((t.get("tabProperties") or {}).get("title") or "", body_text((t.get("documentTab") or {}).get("body"))))
+                walk(t.get("childTabs"))
+
+        if doc.get("tabs"):
+            walk(doc["tabs"])
+        else:
+            out.append((doc.get("title") or "", body_text(doc.get("body"))))
+        return out
+
+    def doc_transcript_text(self, file_id):
+        """(texto, es_transcripción). Del documento de notas de Gemini se lee SOLO la pestaña 'Transcripción';
+        si el documento no tiene pestañas, se toma lo que sigue al encabezado 'Transcripción'. Nunca el resumen de Gemini."""
+        tabs = self.doc_tabs(file_id)
+        for title, text in tabs:
+            if re.search(r"transcri", title or "", re.I):
+                return text, True
+        full = "\n\n".join(t for _, t in tabs)
+        m = re.search(r"(?:^|\n)\s*(transcripci[óo]n|transcript)\s*\n", full, re.I)
+        if m:
+            return full[m.end():], True
+        return full, False
+
     def drive_folder_id(self, name):
         """Reutiliza la carpeta existente aunque su nombre tenga otra grafía (p. ej. 'AlphaOps' → 'Alphaops')."""
         for candidate in dict.fromkeys([name, name.replace("ops", "Ops"), name.replace("Ops", "ops")]):
@@ -437,6 +482,11 @@ class GoogleMessage(models.Model):
                 if not m.ai_action:
                     m.write({"ai_action": _("Anterior al inicio de la automatización; use las acciones de la ficha si desea procesarlo.")})
                 continue
+            if m.category == "meeting_notes" and m.source != "gmail":
+                # El único trigger de resúmenes es el correo de notas de Gemini; Drive y Meet API solo dejan evidencia.
+                if not m.ai_action:
+                    m.write({"ai_action": _("Se procesará cuando llegue el correo de notas de Gemini.")})
+                continue
             m.write({"auto_attempts": m.auto_attempts + 1})
             action = self.AUTO_ACTIONS.get(m.category)
             # Política: nada se convierte en trabajo de un proyecto sin dominio configurado, ni en registro
@@ -464,7 +514,7 @@ class GoogleMessage(models.Model):
                         continue
                     except Exception:  # noqa
                         pass
-                m.write({"ai_action": _("Proceso automático pendiente (%d/3): %s") % (m.auto_attempts, str(e)[:160])})
+                m.write({"ai_action": _("Proceso automático pendiente (intento %d): %s") % (m.auto_attempts, str(e)[:160])})
         return True
 
     # --- conversiones
@@ -498,24 +548,46 @@ class GoogleMessage(models.Model):
             m._done(rec, _("Reunión: %s") % rec.name)
         return True
 
-    def full_text(self):
-        """Texto completo: prioriza el/los Google Docs referenciados (notas de Gemini con resumen + transcripción)."""
+    def full_text(self, require_transcript=False):
+        """Texto a analizar. Si hay documento de notas de Gemini referenciado, se lee ÚNICAMENTE su pestaña
+        'Transcripción' (nunca el resumen de Gemini). Con require_transcript=True devuelve '' mientras esa
+        pestaña no exista, para que el proceso automático espere en vez de adelantarse."""
         self.ensure_one()
         body = self.transcript or self.body or ""
         ids = re.findall(r"docs\.google\.com/document/d/([\w-]+)", (self.body or "") + " " + (self.link or ""))
         if self.source == "drive" and self.external_id:
             ids = [self.external_id] + ids
+        fallback = None
         for did in dict.fromkeys(ids):
             try:
-                t = self.account_id.doc_text(did)
-                if t and len(t) > len(body) * 0.5:
-                    self.write({"transcript": t[:120000], "source_doc_url": "https://docs.google.com/document/d/%s/edit" % did})
-                    return t
+                t, is_tr = self.account_id.doc_transcript_text(did)
             except Exception as e:  # noqa
-                _logger.info("doc_text %s: %s", did, e)
+                _logger.info("doc_transcript_text %s: %s", did, e)
+                continue
+            if is_tr and len((t or "").strip()) > 300:
+                self.write({"transcript": t[:200000], "source_doc_url": "https://docs.google.com/document/d/%s/edit" % did})
+                return t
+            if t and not fallback:
+                fallback = (did, t)
+        if require_transcript:
+            return ""
+        if fallback and len(fallback[1]) > len(body) * 0.5:
+            self.write({"transcript": fallback[1][:120000], "source_doc_url": "https://docs.google.com/document/d/%s/edit" % fallback[0]})
+            return fallback[1]
         if self.attachments_text:
             body += "\n\n[Contenido de adjuntos]\n" + self.attachments_text
         return body
+
+    def _absorb_duplicates(self):
+        """El registro de Drive del mismo documento se cierra junto con el correo de notas que lo procesó."""
+        for m in self:
+            ids = re.findall(r"docs\.google\.com/document/d/([\w-]+)", " ".join(filter(None, (m.body, m.link, m.source_doc_url))))
+            if not ids:
+                continue
+            dups = self.search([("id", "!=", m.id), ("source", "=", "drive"), ("external_id", "in", ids), ("state", "=", "nuevo")])
+            if dups:
+                dups.write({"state": m.state if m.state != "nuevo" else "ignorado", "res_model": m.res_model, "res_id": m.res_id,
+                            "res_label": m.res_label or _("Procesado desde el correo de notas"), "summary_doc_url": m.summary_doc_url, "exec_summary": m.exec_summary})
 
     def action_process_notes(self):
         """Procesa la transcripción SIN requerir proyecto: resumen ejecutivo + documento con la plantilla propia + liga.
@@ -532,11 +604,10 @@ class GoogleMessage(models.Model):
                 m.write({"ai_action": _("El nombre no coincide exactamente con ninguna sesión generada por el sistema; no se procesa automáticamente. "
                                         "Si corresponde, asigne el proyecto y use 'Vincular al proyecto asignado'.")})
                 continue
-            text = m.full_text()
+            text = m.full_text(require_transcript=auto)
             if not (text or "").strip():
-                if auto:
-                    m.write({"ai_action": _("Sin transcripción ni documento legible.")})
-                    continue
+                if auto:  # el documento de Gemini aún no tiene la pestaña 'Transcripción': el cron reintenta más tarde
+                    raise UserError(_("La pestaña 'Transcripción' del documento de notas aún no está disponible; se reintentará."))
                 raise UserError(_("El mensaje no contiene transcripción ni documento legible."))
             if not m.project_id:
                 m._detect()
@@ -566,6 +637,7 @@ class GoogleMessage(models.Model):
                 for u in self.env["aq.portal.user"].sudo().search([("role", "=", "direccion"), ("active", "=", True)]):
                     self.env["mail.mail"].sudo().create({"subject": _("Resumen ejecutivo · %s") % title, "email_to": u.email, "body_html": body_mail,
                                                          "headers": PORTAL_MAIL_HEADERS}).send()
+            m._absorb_duplicates()
         return True
 
     def action_assign_and_link(self):
@@ -654,8 +726,9 @@ class GoogleSync(models.AbstractModel):
         if self.env["ir.config_parameter"].sudo().get_param("aq_google.auto_convert", "1") != "1":
             return 0
         start = max(self._auto_since(), fields.Datetime.now() - timedelta(days=14))
-        pend = self.env["aq.google.message"].sudo().search([("state", "=", "nuevo"), ("auto_attempts", "<", 3),
-                                                            ("date", ">=", start)], limit=50)
+        # Las notas de reunión esperan a que el documento de Gemini tenga su transcripción: hasta 18 intentos (~3 h).
+        pend = self.env["aq.google.message"].sudo().search([("state", "=", "nuevo"), ("date", ">=", start),
+                                                            "|", "&", ("category", "=", "meeting_notes"), ("auto_attempts", "<", 18), ("auto_attempts", "<", 3)], limit=50)
         pend._auto_convert()
         self.env.cr.commit()
         return len(pend)
@@ -928,17 +1001,10 @@ class GoogleSync(models.AbstractModel):
                     continue
                 msg.write({"ai_action": _("Grabación de Meet sin sesión del sistema asociada (código de reunión desconocido); no se procesa automáticamente.")})
                 continue
-            m.with_context(aq_skip_activity=True).write({"transcript": text, "meet_record": rec["name"], "state": "realizada" if m.state == "programada" else m.state})
-            if is_old:  # la transcripción se conserva como evidencia, pero sin proceso IA ni correos retroactivos
-                continue
-            try:
-                if not m.session_type_id or m.session_type_id.auto_process:
-                    m.process_with_ai()
-                else:
-                    self.env["aq.ops.ai"].sudo().summarize_meeting(m)
-            except Exception as e:  # noqa
-                _logger.info("Proceso IA: %s", e)
-            self.env["aq.ops.notification"].sudo().notify_role(m.project_id, ["pm"], "accion_requerida", _("Transcripción de Meet recibida: %s — confirme acuerdos propuestos") % m.name, "meetings", m.id)
+            # Solo se registra la grabación como evidencia. El resumen se genera cuando llega el correo de notas de
+            # Gemini (pestaña 'Transcripción'): procesar aquí sería adelantarse con una transcripción cruda e incompleta.
+            m.with_context(aq_skip_activity=True).write({"meet_record": rec["name"], "state": "realizada" if m.state == "programada" else m.state,
+                                                         "transcript": m.transcript or text})
             n += 1
         acc.write({"last_meet_sync": fields.Datetime.now()})
         return n
@@ -954,20 +1020,14 @@ class GoogleSync(models.AbstractModel):
             _logger.info("Drive: %s", e); return 0
         n = 0
         for f in files:
-            if Msg.search_count([("external_id", "=", f["id"]), ("source", "=", "drive")]):
+            if Msg.search_count([("external_id", "=", f["id"]), ("source", "=", "drive")]) or Msg.search_count([("source", "=", "gmail"), ("body", "ilike", f["id"])]):
                 continue
             text = acc.doc_text(f["id"])
             rec = Msg.create({"account_id": acc.id, "source": "drive", "external_id": f["id"], "subject": f["name"][:250], "body": (text or "")[:30000], "link": f.get("webViewLink"),
                               "date": fields.Datetime.to_datetime(f.get("modifiedTime", "")[:19].replace("T", " ")) if f.get("modifiedTime") else fields.Datetime.now(), "app": "ops", "category": "meeting_notes", "routed_by": "system"})
             rec._detect()
-            if rec.date and rec.date < self._auto_since():
-                rec.write({"ai_action": _("Sesión anterior al inicio de la automatización; use 'Procesar transcripción' si desea el resumen.")})
-                n += 1
-                continue
-            try:
-                rec.with_context(aq_auto=True).action_process_notes()
-            except Exception as e:  # noqa
-                rec.write({"ai_action": str(e)[:200]})
+            # Solo registro: el procesamiento lo dispara el correo de notas de Gemini (y su pestaña 'Transcripción').
+            rec.write({"ai_action": _("Documento de notas detectado en Drive; se procesará cuando llegue el correo de notas de Gemini.")})
             n += 1
         acc.write({"last_drive_sync": fields.Datetime.now()})
         return n

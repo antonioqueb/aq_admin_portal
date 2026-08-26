@@ -145,6 +145,10 @@ class OpsAI(models.AbstractModel):
         content = prompt if not images else ([{"type": "text", "text": prompt}] + [{"type": "image_url", "image_url": {"url": u}} for u in images[:4]])
         body = {"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
                 "temperature": 0.2 if temperature is None else max(0.0, min(float(temperature), 1.5)), "max_tokens": max_tokens}
+        # DeepSeek V4 razona por defecto y devuelve la respuesta vacía si agota los tokens pensando:
+        # se desactiva explícitamente (aq_ops.deepseek_thinking=1 lo habilita solo en el nivel profundo).
+        think_deep = self.env["ir.config_parameter"].sudo().get_param("aq_ops.deepseek_thinking", "0") == "1"
+        body["thinking"] = {"type": "enabled" if (think_deep and tier == "deep" and not images) else "disabled"}
         if json_mode:
             body["response_format"] = {"type": "json_object"}
         timeout = 150 if tier in ("deep", "vision") else 75
@@ -157,9 +161,11 @@ class OpsAI(models.AbstractModel):
                     c["record"].write({"last_used": fields.Datetime.now()})
                 msg = r.json()["choices"][0]["message"]
                 content = msg.get("content") or ""
-                if not content.strip() and msg.get("reasoning_content"):
-                    # el modelo agotó los tokens en razonamiento: se rescata el razonamiento antes que devolver vacío
-                    content = msg["reasoning_content"]
+                if not content.strip():
+                    # El razonamiento interno (reasoning_content) NUNCA se usa como respuesta: vacío es fallo y los
+                    # llamadores aplican su respaldo.
+                    _logger.warning("DeepSeek (%s) devolvió contenido vacío%s", model, " con reasoning_content" if msg.get("reasoning_content") else "")
+                    return ""
                 return content
             except requests.RequestException as e:
                 last_err = e
@@ -179,6 +185,11 @@ class OpsAI(models.AbstractModel):
         raise UserError(_("El copiloto (DeepSeek) no respondió: %s") % last_err)
 
     @api.model
+    def looks_meta(self, text):
+        """Detecta salidas que hablan del prompt en vez de responderlo ('El usuario pide condensar…')."""
+        return bool(re.search(r"\b(el usuario (pide|solicita|quiere)|the user (asks|wants)|fragmento \d+/\d+|este prompt|the prompt)\b", text or "", re.I))
+
+    @api.model
     def condense_transcript(self, text, limit=13000):
         """Una transcripción larga NO se trunca: se condensa por bloques (map-reduce) conservando
         compromisos, decisiones, cifras, nombres y fechas textuales, y luego se sintetiza con el nivel profundo."""
@@ -196,8 +207,8 @@ class OpsAI(models.AbstractModel):
                     "módulos, procesos y sistemas, dudas abiertas y riesgos. ELIMINA: saludos, muletillas, repeticiones y "
                     "conversación sin contenido. Mantén el orden cronológico y el formato 'Persona: dijo/acordó…'."
                     % (idx, len(chunks)) + "\n\nFRAGMENTO:\n" + ch,
-                    max_tokens=1800, tier="fast", temperature=0.1)
-                notes.append(out or ch[:2000])
+                    max_tokens=2200, tier="fast", temperature=0.1)
+                notes.append(out if (out and not self.looks_meta(out)) else ch[:2500])
             except Exception as e:  # noqa
                 _logger.info("condensar fragmento %d: %s", idx, e)
                 notes.append(ch[:2000])
