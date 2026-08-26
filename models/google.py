@@ -1207,6 +1207,55 @@ class OpsMeetingGoogle(models.Model):
             acc.post(batch, {"requests": reqs})
         return did
 
+    def action_reprocess_ai(self):
+        """Repite el proceso de IA desde cero: borra lo que generó la corrida anterior (acuerdos propuestos y sus
+        tareas/cambios sin avance, decisiones, riesgos, preguntas sin responder y documentos de resumen, que van a la
+        papelera de Drive), vuelve a leer la transcripción correcta (pestaña 'Transcripción' del documento de notas de
+        Gemini referenciado por el correo de esta sesión) y procesa de nuevo."""
+        Sync = self.env["aq.google.sync"].sudo()
+        Msg = self.env["aq.google.message"].sudo()
+        for m in self:
+            # 1) limpieza de lo generado por la IA (nunca de lo capturado por personas)
+            for a in m.agreement_ids.filtered("proposed_by_ai"):
+                if a.item_id and a.item_id.state in ("backlog", "por_hacer") and not a.item_id.spent_hours:
+                    a.item_id.sudo().unlink()
+                if a.change_id and a.change_id.state == "solicitado":
+                    a.change_id.sudo().unlink()
+                a.sudo().unlink()
+            m.decision_ids.filtered(lambda d: (d.context_text or "").startswith("Registrada en la sesión")).sudo().unlink()
+            m.raid_ids.filtered(lambda r: r.state == "abierto" and r.next_action == "Evaluar y definir mitigación").sudo().unlink()
+            m.question_ids.filtered(lambda q: not q.answered).sudo().unlink()
+            docs = self.env["aq.ops.document"].sudo().search([("meeting_id", "=", m.id), ("doc_type", "=", "minuta")])
+            try:
+                acc = Sync._account()
+                for d in docs:
+                    did = re.search(r"/d/([\w-]+)", d.drive_url or "")
+                    if did:
+                        acc._call("PATCH", "https://www.googleapis.com/drive/v3/files/%s" % did.group(1), json={"trashed": True})
+            except Exception as e:  # noqa
+                _logger.info("Papelera de documentos: %s", e)
+            docs.unlink()
+            m.with_context(aq_skip_activity=True).write({"exec_summary": False, "summary_doc_url": False, "google_doc_url": False, "processed": False,
+                                                         "summary_sent": False, "followups_log": False, "followups_count": 0, "ai_summary": False, "ai_proposals_json": False})
+            # 2) transcripción correcta: la del documento de notas de Gemini que llegó por correo para esta sesión
+            when = m.date or fields.Datetime.now()
+            cands = Msg.search([("source", "=", "gmail"), ("category", "=", "meeting_notes"),
+                                ("date", ">=", when - timedelta(days=3)), ("date", "<=", when + timedelta(days=3))], order="date desc", limit=20)
+            src = cands.filtered(lambda x: Sync._meeting_for_title(x.subject, x.date) == m)[:1]
+            if src:
+                text = src.full_text(require_transcript=True)
+                if not text or len(text.strip()) <= 300:
+                    raise UserError(_("El documento de notas de Gemini de esta sesión aún no tiene la pestaña 'Transcripción'; intente más tarde."))
+                m.with_context(aq_skip_activity=True).write({"transcript": text})
+                src.write({"state": "convertido", "res_model": m._name, "res_id": m.id, "res_label": _("Reunión: %s") % m.name, "project_id": m.project_id.id})
+            elif not (m.transcript or "").strip():
+                raise UserError(_("No hay correo de notas de Gemini ni transcripción para esta sesión."))
+            # 3) proceso completo (resumen, documento con marca, actividades y correo)
+            m.process_with_ai()
+            if src:
+                src.write({"exec_summary": m.exec_summary, "summary_doc_url": m.summary_doc_url or m.google_doc_url})
+        return True
+
     def action_create_google_doc(self):
         """Minuta en Google Docs SIEMPRE con la plantilla de marca (el texto plano queda solo como último recurso)."""
         Session = self.env["aq.ops.meeting"]

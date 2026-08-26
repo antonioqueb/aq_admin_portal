@@ -113,6 +113,7 @@ OPS_RESOURCES = {
                           {"field": "question_ids", "resource": "questions", "parent_field": "meeting_id", "label": "Preguntas abiertas"}, {"field": "raid_ids", "resource": "raid", "parent_field": "meeting_id", "label": "Riesgos"},
                           {"field": "item_ids", "resource": "items", "parent_field": "meeting_id", "label": "Tareas"}, {"field": "change_ids", "resource": "changes", "parent_field": "meeting_id", "label": "Cambios"}],
                  "actions": [{"name": "action_mark_done", "label": "Marcar realizada", "roles": TEAM}, {"name": "action_send_minutes", "label": "Enviar minuta", "roles": INTERNAL}, {"name": "action_create_google_doc", "label": "Crear minuta en Google Docs", "roles": INTERNAL}, {"name": "action_process_ai", "label": "Procesar con IA (resumen ejecutivo + Doc + correo + actividades)", "roles": INTERNAL},
+                             {"name": "action_reprocess_ai", "label": "Reprocesar con IA (borra lo generado antes y relee la transcripción de Gemini)", "roles": INTERNAL},
                              {"name": "action_assign_folio", "label": "Asignar folio del consecutivo", "roles": INTERNAL}],
                  "client_hidden": CLIENT_HIDDEN_COMMON, "roles": {"read": EVERYONE, "write": INTERNAL, "create": INTERNAL, "delete": LEADS}},
     "agreements": {"model": "aq.ops.meeting.agreement", "label": "Acuerdos", "singular": "Acuerdo", "section": None, "scope": "meeting_id.project_id",
