@@ -23,8 +23,8 @@ OPS_RESOURCES = {
         "list": ["name", "partner_id", "pm_id", "service_type", "stage", "health", "priority", "risk_level", "hours_pct", "next_milestone_id", "next_action_date", "client_dependent"],
         "filters": ["stage", "health", "service_type", "priority", "risk_level", "pm_id", "partner_id", "client_dependent", "has_next_action"],
         "groups": [
-            {"title": "Identidad", "fields": ["name", "code", "partner_id", "service_type", "template_id", "methodology", "stage", "priority", "client_visible"]},
-            {"title": "Sesiones y documentos", "fields": ["session_prefix", "session_seq", "session_stage", "stage_started_on", "folio_scheme", "session_po", "client_seq", "group_email", "email_domains", "session_count", "drive_folder_id", "drive_folder_url"]},
+            {"title": "Identidad", "fields": ["name", "code", "partner_id", "email_domains", "service_type", "template_id", "methodology", "stage", "priority", "client_visible"]},
+            {"title": "Sesiones y documentos", "fields": ["session_prefix", "session_seq", "session_stage", "stage_started_on", "folio_scheme", "session_po", "client_seq", "group_email", "session_count", "drive_folder_id", "drive_folder_url"]},
             {"title": "Objetivo y alcance vigente", "fields": ["objective", "scope_current", "scope_version", "admin_project_ref"]},
             {"title": "Equipo", "fields": ["pm_id", "functional_lead_id", "tech_lead_id", "team_member_ids", "client_contact_ids", "validator_ids", "escalation_path"]},
             {"title": "Siguiente acción (obligatoria)", "fields": ["next_action", "next_action_owner_id", "next_action_date", "next_decision"]},
