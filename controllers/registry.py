@@ -556,7 +556,8 @@ RESOURCES = {
                    {"title": "Enrutamiento", "fields": ["app", "category", "routed_by", "rule_id", "partner_id", "project_id", "ai_summary", "ai_action", "state", "res_label"]},
                    {"title": "Contenido", "fields": ["body"]}],
         "actions": [{"name": "action_to_admin_agreement", "label": "→ Pendiente / acuerdo", "roles": ROLE_WRITE}, {"name": "action_to_admin_receivable", "label": "→ Seguimiento de cobranza", "roles": ROLE_WRITE},
-                    {"name": "action_to_admin_payable", "label": "→ Cuenta por pagar", "roles": ROLE_WRITE}, {"name": "action_ignore", "label": "Ignorar", "roles": ROLE_WRITE}],
+                    {"name": "action_to_admin_payable", "label": "→ Cuenta por pagar", "roles": ROLE_WRITE},
+                    {"name": "action_reanalyze", "label": "Reanalizar (dominios / reglas / copiloto)", "roles": ROLE_WRITE}, {"name": "action_ignore", "label": "Ignorar", "roles": ROLE_WRITE}],
         "roles": {"read": ROLE_WRITE, "write": ROLE_WRITE, "create": [], "delete": ["direccion"]},
     },
     "google_rules": {

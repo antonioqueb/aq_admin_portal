@@ -259,6 +259,7 @@ OPS_RESOURCES = {
                     {"name": "action_assign_and_link", "label": "Vincular al proyecto asignado (reunión + actividades)", "roles": INTERNAL},
                     {"name": "action_to_ops_meeting", "label": "→ Reunión (notas/transcripción)", "roles": INTERNAL}, {"name": "action_to_ops_request", "label": "→ Solicitud", "roles": INTERNAL},
                     {"name": "action_to_ops_incident", "label": "→ Incidente", "roles": INTERNAL}, {"name": "action_to_ops_comment", "label": "→ Comunicación del proyecto", "roles": INTERNAL},
+                    {"name": "action_reanalyze", "label": "Reanalizar (dominios / reglas / copiloto)", "roles": INTERNAL},
                     {"name": "action_ignore", "label": "Ignorar", "roles": INTERNAL}],
         "roles": {"read": INTERNAL, "write": INTERNAL, "create": [], "delete": FULL},
     },

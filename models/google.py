@@ -403,6 +403,12 @@ class GoogleRule(models.Model):
         return has(self.match_from, msg.get("from")) and has(self.match_to, msg.get("to")) and has(self.match_subject, msg.get("subject")) and \
             (not kws or any(k in body or k in (msg.get("subject") or "").lower() for k in kws)) and (not self.match_label or self.match_label.lower() in " ".join(msg.get("labels", [])).lower())
 
+    def is_identity_rule(self):
+        """Regla que identifica explícitamente al remitente o al destinatario (lista blanca deliberada).
+        Solo estas reglas abren la compuerta de dominios; las que dependen únicamente de palabras clave no."""
+        self.ensure_one()
+        return bool((self.match_from or "").strip() or (self.match_to or "").strip())
+
 
 class GoogleMessage(models.Model):
     """Bandeja unificada: correos, eventos y notas de Meet ya enrutados. Conversión con confirmación humana (o automática por regla)."""
@@ -445,6 +451,12 @@ class GoogleMessage(models.Model):
     auto_attempts = fields.Integer(string="Intentos de proceso automático", default=0)
 
     # --- detección de cliente/proyecto: SOLO por los dominios de correo configurados en cada proyecto
+    def _external_domains(self):
+        """Dominios externos (no Alphaqueb/Google) presentes en De/Para/CC, ordenados."""
+        self.ensure_one()
+        emails = re.findall(r"[\w.+-]+@([\w-]+\.[\w.-]+)", (self.sender or "") + " " + (self.recipients or ""))
+        return sorted({d.lower().strip(".") for d in emails if not d.lower().endswith(("alphaqueb.com", "google.com", "gmail.com"))})
+
     def _detect(self):
         """Vinculación determinista. El proyecto se asigna únicamente si el dominio del remitente está en
         'Dominios de correo del cliente' de un proyecto activo; nada de adivinar por palabras del texto.
@@ -452,8 +464,7 @@ class GoogleMessage(models.Model):
         Partner = self.env["res.partner"].sudo()
         Project = self.env["aq.ops.project"].sudo()
         for m in self:
-            emails = re.findall(r"[\w.+-]+@([\w-]+\.[\w.-]+)", (m.sender or "") + " " + (m.recipients or ""))
-            domains = {d.lower().strip(".") for d in emails if not d.lower().endswith(("alphaqueb.com", "google.com", "gmail.com"))}
+            domains = m._external_domains()
             proj = Project._by_email_domain(domains) if domains else Project
             partner = proj.partner_id if proj else Partner
             if not partner:
@@ -462,6 +473,28 @@ class GoogleMessage(models.Model):
                     if partner:
                         break
             m.write({"partner_id": partner.id if partner else False, "project_id": proj.id if proj else False})
+
+    def _as_msg(self):
+        """Reconstruye el diccionario de enrutamiento a partir de lo guardado (para reanalizar sin volver a Gmail)."""
+        self.ensure_one()
+        body = self.body or ""
+        if self.attachments_text:
+            body += "\n\n[Contenido de adjuntos]\n" + self.attachments_text[:6000]
+        return {"from": self.sender or "", "to": self.recipients or "", "subject": self.subject or "", "body": body,
+                "labels": [l for l in (self.labels or "").split(",") if l]}
+
+    def action_reanalyze(self):
+        """Vuelve a evaluar el correo con la configuración actual (dominios de proyecto, reglas, copiloto).
+        Pensado para después de agregar el dominio del remitente a un proyecto: el mensaje que la compuerta ignoró
+        se vincula y se procesa; si sigue sin dominio, permanece ignorado sin consumir copiloto."""
+        Sync = self.env["aq.google.sync"].sudo()
+        for m in self:
+            if m.source != "gmail" or m.state not in ("nuevo", "ignorado"):
+                continue
+            m._detect()
+            m.write({"state": "nuevo", "routed_by": "system", "rule_id": False, "ai_summary": False, "ai_action": False, "auto_attempts": 0})
+            Sync.route(m, m._as_msg())
+        return True
 
     # --- proceso automático: cada categoría sabe en qué convertirse sin intervención humana
     AUTO_ACTIONS = {"meeting_notes": "action_process_notes", "request": "action_to_ops_request", "incident": "action_to_ops_incident",
@@ -779,13 +812,25 @@ class GoogleSync(models.AbstractModel):
                 continue
             body = acc.gmail_text(full.get("payload", {}))
             parts = acc.gmail_attachment_parts(full.get("payload", {}))
-            msg = {"from": headers.get("from", ""), "to": headers.get("to", ""), "subject": headers.get("subject", "(sin asunto)"), "body": body, "labels": full.get("labelIds", [])}
+            to_all = ", ".join(x for x in (headers.get("to", ""), headers.get("cc", "")) if x)
+            msg = {"from": headers.get("from", ""), "to": to_all, "subject": headers.get("subject", "(sin asunto)"), "body": body, "labels": full.get("labelIds", [])}
             mdate = datetime.datetime.utcfromtimestamp(int(full["internalDate"]) // 1000) if full.get("internalDate") else fields.Datetime.now()
             rec = Msg.create({"account_id": acc.id, "source": "gmail", "external_id": ref["id"], "thread_id": full.get("threadId"), "subject": msg["subject"][:250], "sender": msg["from"][:250],
                               "recipients": msg["to"][:500], "date": mdate,
                               "snippet": (full.get("snippet") or "")[:300], "body": body[:20000], "labels": ",".join(full.get("labelIds", [])),
                               "attachment_names": ", ".join(p["filename"] for p in parts)[:500],
                               "link": "https://mail.google.com/mail/u/0/#all/%s" % full.get("threadId")})
+            rec._detect()
+            # Compuerta de dominios: lo que no viene de un proyecto (ni es notas de Meet ni regla por remitente)
+            # se ignora aquí mismo, sin descargar adjuntos ni gastar tokens del copiloto.
+            reason = self._domain_gate(rec, msg)
+            if reason:
+                self._reject(rec, reason)
+                if label_done:
+                    acc.gmail_add_label(ref["id"], label_done)
+                n += 1
+                self.env.cr.commit()
+                continue
             # adjuntos: se guardan en el mensaje y su texto se extrae para el análisis
             texts = []
             for p in parts[:10]:
@@ -802,7 +847,6 @@ class GoogleSync(models.AbstractModel):
             if texts:
                 rec.write({"attachments_text": "\n\n".join(texts)[:60000]})
                 msg["body"] = (msg["body"] or "") + "\n\n[Contenido de adjuntos]\n" + "\n\n".join(texts)[:6000]
-            rec._detect()
             self.route(rec, msg)
             if label_done:
                 acc.gmail_add_label(ref["id"], label_done)
@@ -827,13 +871,46 @@ class GoogleSync(models.AbstractModel):
         return bool(PORTAL_SUBJECT_RE.match(headers.get("subject", "") or ""))
 
     @api.model
-    def route(self, rec, msg):
-        """1) Notas de Meet → reunión; 2) reglas; 3) copiloto (DeepSeek) decide app y categoría; 4) conversión automática
-        de toda categoría accionable (aq_google.auto_convert=1, activado por defecto)."""
-        auto_all = self.env["ir.config_parameter"].sudo().get_param("aq_google.auto_convert", "1") == "1"
+    def _is_meeting_notes(self, msg):
         sender = (msg.get("from") or "").lower()
         subj = (msg.get("subject") or "").lower()
-        if any(s in sender for s in MEET_SENDERS) or subj.startswith(("notes:", "notas:", "notas de la reunión", "notes from", "resumen de la reunión", "transcripción")):
+        return any(s in sender for s in MEET_SENDERS) or subj.startswith(("notes:", "notas:", "notas de la reunión", "notes from", "resumen de la reunión", "transcripción"))
+
+    @api.model
+    def _only_project_domains(self):
+        """aq_google.only_project_domains (1 por defecto): solo se analiza correo de dominios vinculados a proyectos."""
+        return self.env["ir.config_parameter"].sudo().get_param("aq_google.only_project_domains", "1") == "1"
+
+    @api.model
+    def _domain_gate(self, rec, msg):
+        """Compuerta de dominios. Devuelve el motivo de rechazo (texto) o False si el correo debe procesarse.
+        Solo pasan: (a) correo con algún dominio de De/Para/CC en 'Dominios de correo del cliente' de un proyecto
+        activo (rec.project_id ya resuelto por _detect); (b) notas de Meet/Gemini, que se vinculan por título de
+        sesión; (c) correo que una regla activa identifica por remitente o destinatario (lista blanca deliberada).
+        Todo lo demás —incluido correo interno o de proveedores sin proyecto— se ignora sin adjuntos ni copiloto."""
+        if not self._only_project_domains():
+            return False
+        if rec.project_id or self._is_meeting_notes(msg):
+            return False
+        for rule in self.env["aq.google.rule"].sudo().search([("active", "=", True)]):
+            if rule.is_identity_rule() and rule.matches(msg):
+                return False
+        doms = rec._external_domains()
+        if doms:
+            return _("Dominio(s) %s sin proyecto vinculado: no se analiza ni se envía al copiloto. Agregue el dominio en "
+                     "'Dominios de correo del cliente' del proyecto (o una regla por remitente) y use 'Reanalizar'.") % ", ".join(doms)
+        return _("Correo sin dominio externo (interno o automático) y sin regla por remitente: no se analiza.")
+
+    @api.model
+    def _reject(self, rec, reason):
+        rec.write({"state": "ignorado", "category": "info", "routed_by": "system", "ai_action": reason})
+
+    @api.model
+    def route(self, rec, msg):
+        """0) Compuerta de dominios; 1) Notas de Meet → reunión; 2) reglas; 3) copiloto (DeepSeek) decide app y categoría;
+        4) conversión automática de toda categoría accionable (aq_google.auto_convert=1, activado por defecto)."""
+        auto_all = self.env["ir.config_parameter"].sudo().get_param("aq_google.auto_convert", "1") == "1"
+        if self._is_meeting_notes(msg):
             rec.write({"app": "ops", "category": "meeting_notes", "routed_by": "system"})
             if rec.date and rec.date < self._auto_since():
                 rec.write({"ai_action": _("Sesión anterior al inicio de la automatización; use 'Procesar transcripción' si desea el resumen.")})
@@ -842,6 +919,10 @@ class GoogleSync(models.AbstractModel):
                 rec.with_context(aq_auto=True).action_process_notes()
             except Exception as e:  # noqa
                 _logger.warning("Notas de Meet: %s", e)
+            return
+        reason = self._domain_gate(rec, msg)
+        if reason:  # también protege a quien llame a route() directamente (p. ej. 'Reanalizar')
+            self._reject(rec, reason)
             return
         for rule in self.env["aq.google.rule"].sudo().search([("active", "=", True)]):
             if rule.matches(msg):
@@ -887,7 +968,7 @@ class GoogleSync(models.AbstractModel):
                 rec._auto_convert()
             return
         # heurística sin IA
-        text = subj + " " + (msg.get("body") or "")[:2000].lower()
+        text = (msg.get("subject") or "").lower() + " " + (msg.get("body") or "")[:2000].lower()
         cat, app = "other", "ops"
         if re.search(r"factura|cfdi|pago|cobro|complemento|estado de cuenta", text): cat, app = "invoice", "admin"
         elif re.search(r"contrato|nda|convenio|legal|aviso de privacidad", text): cat, app = "legal", "admin"
