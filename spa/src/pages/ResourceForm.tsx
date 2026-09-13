@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import OpsExtras from '../components/OpsExtras'
 import AdminExtras from '../components/AdminExtras'
@@ -15,6 +15,8 @@ export default function ResourceForm() {
   const [sp] = useSearchParams()
   const { schema, user, toast, rapi, base, app } = useApp()
   const nav = useNavigate()
+  const loc = useLocation()
+  const [ids, setIds] = useState<number[]>((loc.state as any)?.ids || [])
   const res = schema?.resources[resource]
   const isNew = !id
   const [rec, setRec] = useState<any>(null)
@@ -41,6 +43,21 @@ export default function ResourceForm() {
   }, [res, resource, id, isNew, sp, toast, nav, rapi, base])
   useEffect(() => { setTab('form'); setRec(null); setDirty({}); setInvalid(new Set()) }, [resource, id])  // ficha limpia al cambiar de registro
   useEffect(() => { loadKeyRef.current = `${resource}/${id || 'new'}`; load() }, [load, resource, id])
+  // navegación entre registros: si no venimos de una lista, se toma la lista por defecto del recurso (mismo orden que la vista)
+  useEffect(() => {
+    const fromState: number[] = (loc.state as any)?.ids || []
+    if (fromState.length) { setIds(fromState); return }
+    if (!res || isNew) return
+    rapi.list(resource, { limit: 200, fields: 'name' }).then(r => setIds(r.records.map((x: any) => x.id))).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resource, isNew])
+  const pos = ids.indexOf(Number(id))
+  const goTo = (i: number) => { if (i < 0 || i >= ids.length) return; if (Object.keys(dirty).length && !confirm('Hay cambios sin guardar. ¿Continuar sin guardar?')) return; nav(`${base}/r/${resource}/${ids[i]}`, { state: { ids } }) }
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { const t = e.target as HTMLElement; if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t?.tagName) || t?.isContentEditable) return; if (e.altKey && e.key === 'ArrowLeft') goTo(pos - 1); if (e.altKey && e.key === 'ArrowRight') goTo(pos + 1) }
+    window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pos, ids, dirty])
   if (!res) return <div className="empty">Recurso no disponible para su rol.</div>
   if (!rec) return <div className="empty">Cargando…</div>
   const canWrite = isNew ? res.can.create : res.can.write
@@ -90,6 +107,11 @@ export default function ResourceForm() {
           <h1>{isNew ? `Nuevo ${res.singular.toLowerCase()}` : rec.display_name}</h1>
         </div>
         <span className="spacer" />
+        {!isNew && pos >= 0 && ids.length > 1 && <div className="recnav">
+          <button className="btn secondary small" disabled={pos <= 0} onClick={() => goTo(pos - 1)} title="Anterior (Alt + ←)">‹ Anterior</button>
+          <span>{pos + 1} de {ids.length}</span>
+          <button className="btn secondary small" disabled={pos >= ids.length - 1} onClick={() => goTo(pos + 1)} title="Siguiente (Alt + →)">Siguiente ›</button>
+        </div>}
         {canWrite && <button className="btn" disabled={saving || !Object.keys(dirty).length} onClick={save}>{saving ? 'Guardando…' : 'Guardar'}</button>}
         {Object.keys(dirty).length > 0 && !isNew && <button className="btn secondary" onClick={() => setDirty({})}>Descartar</button>}
         {!isNew && primaryActions.map(a => <button key={a.name} className="btn secondary" onClick={() => run(a)}>{a.label}</button>)}

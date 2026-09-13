@@ -100,7 +100,7 @@ export default function ResourceList() {
           {app === 'ops' && <button className="btn secondary small" onClick={saveFilter}>Guardar filtro</button>}
         </div>
         {app === 'ops' && views.length > 0 && <div className="chip-row">{views.map(v => <span key={v.id}><button onClick={() => applyView(v)}>{v.name}{v.shared ? ' · equipo' : ''}</button>{v.mine && <button title="Eliminar" onClick={() => ops.deleteView(v.id).then(loadViews)}>✕</button>}</span>)}</div>}
-        <RecordTable res={res} records={records} onOpen={r => nav(`${base}/r/${resource}/${r.id}`)} order={order} onSort={onSort} />
+        <RecordTable res={res} records={records} onOpen={r => nav(`${base}/r/${resource}/${r.id}`, { state: { ids: records.map(x => x.id) } })} order={order} onSort={onSort} />
         <div className="pager">
           <button className="btn secondary small" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>‹ Anterior</button>
           <span>{offset + 1}–{Math.min(offset + limit, total)} de {total}</span>
