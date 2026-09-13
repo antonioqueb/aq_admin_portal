@@ -678,14 +678,15 @@ class GoogleMessage(models.Model):
         Sync = self.env["aq.google.sync"]
         auto = bool(self.env.context.get("aq_auto"))
         for m in self:
-            # Trigger oficial: el nombre de las notas/transcripción coincide EXACTAMENTE con una sesión generada por el sistema.
-            meeting = Sync._meeting_for_title(m.subject, m.date)
-            if meeting:
-                m.write({"project_id": meeting.project_id.id, "partner_id": meeting.project_id.partner_id.id})
+            # Vinculación en cascada: título exacto → folio → evento de Calendar (invitados vs dominios/correos del proyecto) → participantes citados.
+            res = Sync._resolve_notes(m) if not m.project_id else {"meeting": Sync._meeting_for_title(m.subject, m.date), "project": m.project_id, "how": _("proyecto asignado"), "reason": ""}
+            meeting = res["meeting"]
+            if res["project"]:
+                m.write({"project_id": res["project"].id, "partner_id": res["project"].partner_id.id, "ai_action": _("Vinculado por %s.") % res["how"]})
             elif auto:
-                m.write({"ai_action": _("El nombre no coincide exactamente con ninguna sesión generada por el sistema; no se procesa automáticamente. "
-                                        "Si corresponde, asigne el proyecto y use 'Vincular al proyecto asignado'.")})
+                m.write({"ai_action": res["reason"]})
                 continue
+            SyncM = Sync.with_context(aq_notes_meeting_id=meeting.id if meeting else False)
             text = m.full_text(require_transcript=auto)
             if not (text or "").strip():
                 if auto:  # el documento de Gemini aún no tiene la pestaña 'Transcripción': el cron reintenta más tarde
@@ -696,7 +697,7 @@ class GoogleMessage(models.Model):
             linked = False
             if m.project_id:
                 try:
-                    meeting = Sync.meeting_from_notes(m)
+                    meeting = SyncM.meeting_from_notes(m)
                     m._done(meeting, _("Reunión: %s") % meeting.name)
                     m.write({"exec_summary": meeting.exec_summary, "summary_doc_url": meeting.summary_doc_url or meeting.google_doc_url})
                     linked = True
@@ -1184,6 +1185,121 @@ class GoogleSync(models.AbstractModel):
         return n
 
     @api.model
+    def _projects_for_emails(self, emails):
+        """Proyectos activos cuyos 'Correos exactos' o 'Dominios de correo' cubren alguna de las direcciones dadas.
+        Los correos exactos tienen prioridad: si alguno coincide, no se consideran los dominios."""
+        Project = self.env["aq.ops.project"].sudo()
+        emails = {(e or "").lower().strip() for e in (emails or []) if e and "@" in e and not e.lower().endswith("@alphaqueb.com")}
+        if not emails:
+            return Project
+        found = Project
+        for p in Project.search([("stage", "not in", ("cerrado",)), ("email_addresses", "!=", False)]):
+            if emails & p._email_list():
+                found |= p
+        if found:
+            return found
+        domains = {e.split("@")[-1] for e in emails if not e.endswith(("google.com", "gmail.com", "hotmail.com", "outlook.com", "yahoo.com", "icloud.com"))}
+        for p in Project.search([("stage", "not in", ("cerrado",)), ("email_domains", "!=", False)]):
+            conf = {c.strip().lower().lstrip("@") for c in (p.email_domains or "").split(",") if c.strip()}
+            if any(d == c or d.endswith("." + c) for d in domains for c in conf):
+                found |= p
+        return found
+
+    @api.model
+    def _projects_for_names(self, text):
+        """Proyectos cuyos contactos del cliente (nombre completo) aparecen en el texto de las notas (lista de invitados de Gemini)."""
+        Project = self.env["aq.ops.project"].sudo()
+        low = " " + re.sub(r"\s+", " ", (text or "")[:6000]).lower() + " "
+        found = Project
+        for p in Project.search([("stage", "not in", ("cerrado",))]):
+            for c in p.client_contact_ids:
+                name = (c.name or "").strip().lower()
+                if len(name) >= 8 and " " in name and (" " + name + " ") in low:
+                    found |= p
+                    break
+        return found
+
+    @api.model
+    def _resolve_notes(self, msg):
+        """Vincula unas notas/transcripción de Meet a la sesión y al proyecto, en cascada y sin adivinar:
+        1) título exactamente igual al de una sesión del sistema; 2) folio + prefijo de sesión en el título;
+        3) evento de Calendar de esa hora: sus invitados contra dominios/correos exactos de los proyectos
+           (y el título del evento contra las sesiones); 4) participantes citados en las notas.
+        Devuelve {'meeting', 'project', 'how', 'candidates', 'reason'}."""
+        Meeting = self.env["aq.ops.meeting"].sudo()
+        Project = self.env["aq.ops.project"].sudo()
+        out = {"meeting": Meeting, "project": Project, "how": "", "candidates": Project, "reason": ""}
+        title = _strip_portal_prefix(msg.subject or "")
+        when = msg.date or fields.Datetime.now()
+        # 1) título exacto
+        m = self._meeting_for_title(msg.subject, msg.date)
+        if m:
+            out.update(meeting=m, project=m.project_id, how=_("título exacto")); return out
+        # 2) folio + prefijo (p. ej. 'SESIÓN #178– SOM– …' aunque cambie el tipo o la fecha del título)
+        info = Meeting.parse_folio(title)
+        if info.get("folio") or info.get("client_folio"):
+            dom = [("date", ">=", when - timedelta(days=45)), ("date", "<=", when + timedelta(days=45))]
+            dom += [("folio", "=", info["folio"])] if info.get("folio") else [("client_folio", "=", info["client_folio"])]
+            cands = Meeting.search(dom, order="date desc")
+            pref = (info.get("prefix") or "").upper()
+            if pref:
+                cands = cands.filtered(lambda c: (c.project_id.session_prefix or "").upper() == pref or pref in (c.name or "").upper())
+            if len(cands.mapped("project_id")) == 1:
+                m = min(cands, key=lambda c: abs((c.date - when).total_seconds()))
+                out.update(meeting=m, project=m.project_id, how=_("folio de sesión")); return out
+        # 3) evento de Calendar de esa hora (las notas llegan poco después de terminar la reunión)
+        try:
+            acc = msg.account_id or self._account()
+            events = acc.calendar_events((when - timedelta(hours=8)).strftime("%Y-%m-%dT%H:%M:%SZ"), (when + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        except Exception as e:  # noqa
+            _logger.info("Calendar para notas: %s", e); events = []
+        head = re.split(r"[–|:]", _norm_session_title(title))[0].strip().lower()[:25]
+        scored = []
+        for ev in events:
+            if ev.get("status") == "cancelled" or not ev.get("id"):
+                continue
+            start = (ev.get("start") or {}).get("dateTime") or ""
+            if not start:
+                continue
+            st = _google_dt_to_utc(start, (ev.get("start") or {}).get("timeZone"))
+            emails = [a.get("email", "").lower() for a in ev.get("attendees", []) if a.get("email")]
+            projs = self._projects_for_emails(emails)
+            summ = (ev.get("summary") or "").lower()
+            score = 0
+            if head and (head in summ or _norm_session_title(ev.get("summary")) == _norm_session_title(title)):
+                score += 50
+            if projs:
+                score += 30
+            score -= min(abs((st - when).total_seconds()) / 3600.0, 10)  # más cerca en el tiempo, mejor
+            scored.append((score, ev, projs))
+        scored.sort(key=lambda x: -x[0])
+        if scored:
+            score, ev, projs = scored[0]
+            sess = Meeting.search([("google_event_id", "=", ev["id"])], limit=1)
+            if sess and (score >= 50 or len(scored) == 1 or len(projs) == 1):
+                out.update(meeting=sess, project=sess.project_id, how=_("evento de Calendar «%s»") % (ev.get("summary") or "")[:60]); return out
+            if len(projs) == 1:
+                out.update(project=projs, how=_("invitados del evento «%s»") % (ev.get("summary") or "")[:60]); return out
+            if len(projs) > 1:
+                out["candidates"] |= projs
+        # 4) participantes citados en las notas (correos o nombres de contactos del cliente)
+        try:
+            text = msg.full_text()
+        except Exception:  # noqa
+            text = msg.body or ""
+        projs = self._projects_for_emails(re.findall(r"[\w.+-]+@[\w-]+\.[\w.-]+", (text or "")[:20000]))
+        if not projs:
+            projs = self._projects_for_names(text)
+        if len(projs) == 1:
+            out.update(project=projs, how=_("participantes citados en las notas")); return out
+        out["candidates"] |= projs
+        cands = out["candidates"]
+        out["reason"] = (_("Varios proyectos posibles (%s): asigne el proyecto en la bandeja y use 'Vincular al proyecto asignado'.") % ", ".join(cands.mapped("name")[:4])
+                         if cands else _("Sin sesión con ese título, sin evento de Calendar con invitados de un proyecto y sin participantes reconocibles en las notas. "
+                                          "Revise los dominios / correos exactos del proyecto o asigne el proyecto en la bandeja."))
+        return out
+
+    @api.model
     def _meeting_for_title(self, title, date=None):
         """Sesión del sistema cuyo nombre coincide EXACTAMENTE (forma canónica) con el título de las notas/transcripción.
         Es el único trigger que vincula notas de Meet a un proyecto; sin coincidencia exacta no hay vinculación."""
@@ -1207,6 +1323,8 @@ class GoogleSync(models.AbstractModel):
         title = re.sub(r"^(notes|notas|notas de la reunión|resumen de la reunión|transcripción)\s*[:\-–]\s*", "", _strip_portal_prefix(msg.subject), flags=re.I).strip() or _("Reunión")
         title = re.sub(r"\s*[-–]\s*(Notes|Notas) (by|de|por) Gemini.*$", "", title, flags=re.I).strip()
         m = self._meeting_for_title(msg.subject, msg.date)
+        if not m and self.env.context.get("aq_notes_meeting_id"):
+            m = Meeting.browse(self.env.context["aq_notes_meeting_id"]).exists()
         if not m:
             if not msg.project_id:
                 msg._detect()
