@@ -1,3 +1,4 @@
+from odoo.fields import Domain
 from odoo import api, fields, models, _
 
 PROJECT_STAGES = [
@@ -93,7 +94,7 @@ class Project(models.Model):
     step_progress = fields.Float(compute="_compute_steps", string="Avance del procedimiento (%)")
 
     @api.depends("last_activity_date", "next_action", "next_action_date", "next_action_responsible_id",
-                 "pending_client_info", "agreement_ids.client_dependent")
+                 "pending_client_info", "agreement_ids.client_dependent", "stage")
     def _compute_activity(self):
         today = fields.Date.today()
         stale_days = int(self.env["ir.config_parameter"].sudo().get_param("aq_admin_portal.stale_days", "5"))
@@ -111,7 +112,7 @@ class Project(models.Model):
         dom = [("last_activity_date", "<=", limit), ("stage", "not in", ("cierre", "cancelado", "pausado", "soporte"))]
         if (operator == "=" and value) or (operator == "!=" and not value):
             return dom
-        return ["!"] + dom
+        return list(~Domain(dom))
 
     @api.depends("agreement_ids.state", "agreement_ids.due_date", "agreement_ids.is_repeated")
     def _compute_agreements(self):

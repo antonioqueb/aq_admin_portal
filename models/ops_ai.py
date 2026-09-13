@@ -158,9 +158,14 @@ class OpsAI(models.AbstractModel):
                 r = requests.post(url, json=body, headers={"Authorization": "Bearer %s" % c["key"], "Content-Type": "application/json"}, timeout=timeout)
                 r.raise_for_status()
                 if c["record"]:
-                    c["record"].write({"last_used": fields.Datetime.now()})
-                msg = r.json()["choices"][0]["message"]
+                    self._touch_last_used("aq_ops_integration", c["record"].id)
+                try:
+                    msg = r.json()["choices"][0]["message"]
+                except (ValueError, KeyError, IndexError, TypeError) as e:
+                    raise UserError(_("Respuesta inesperada de DeepSeek (%s): %s") % (e, (r.text or "")[:300]))
                 content = msg.get("content") or ""
+                if isinstance(content, list):
+                    content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
                 if not content.strip():
                     # El razonamiento interno (reasoning_content) NUNCA se usa como respuesta: vacío es fallo y los
                     # llamadores aplican su respaldo.
@@ -183,6 +188,22 @@ class OpsAI(models.AbstractModel):
                 break
         _logger.warning("DeepSeek no disponible: %s", last_err)
         raise UserError(_("El copiloto (DeepSeek) no respondió: %s") % last_err)
+
+    @api.model
+    def _touch_last_used(self, table, rec_id, minutes=5):
+        """Marca 'last_used' en un cursor independiente y sin esperar bloqueos: nunca provoca
+        'could not serialize access due to concurrent update' en la transacción de la petición."""
+        if not rec_id or table not in ("aq_ops_integration", "aq_ai_prompt"):
+            return
+        try:
+            with self.env.registry.cursor() as cr:
+                extra = ", use_count = COALESCE(use_count, 0) + 1" if table == "aq_ai_prompt" else ""
+                cr.execute(
+                    "UPDATE %s SET last_used = (now() AT TIME ZONE 'UTC')%s WHERE id IN (SELECT id FROM %s WHERE id = %%s "
+                    "AND (last_used IS NULL OR last_used < (now() AT TIME ZONE 'UTC') - %%s * interval '1 minute') FOR UPDATE SKIP LOCKED)" % (table, extra, table),
+                    (rec_id, minutes))
+        except Exception:  # noqa
+            _logger.debug("last_used no actualizado en %s", table, exc_info=True)
 
     @api.model
     def looks_meta(self, text):
@@ -240,17 +261,24 @@ class OpsAI(models.AbstractModel):
             data = self.parse_json(out) if out else None
         if data is None:
             data = self._heuristic_meeting(raw or clean) if out is None else {"summary": out, "agreements": [], "decisions": [], "questions": [], "risks": []}
-        meeting.write({"ai_summary": data.get("summary"), "ai_proposals_json": json.dumps(data, ensure_ascii=False)})
+        def _s(v):
+            return v if isinstance(v, str) else ("" if v in (None, False) else json.dumps(v, ensure_ascii=False))
+        if not isinstance(data, dict):
+            data = {"summary": _s(data), "agreements": [], "decisions": [], "questions": [], "risks": []}
+        meeting.write({"ai_summary": _s(data.get("summary")), "ai_proposals_json": json.dumps(data, ensure_ascii=False)})
         Agreement = self.env["aq.ops.meeting.agreement"]
-        for a in data.get("agreements", []):
+        agreements = [a for a in (data.get("agreements") or []) if isinstance(a, dict) and isinstance(a.get("name"), str)]
+        for a in agreements:
             if a.get("name") and not Agreement.search_count([("meeting_id", "=", meeting.id), ("name", "=ilike", a["name"][:120])]):
                 owner = meeting._find_member(a.get("owner"))
                 contacto = meeting._find_client_contact(a.get("owner")) if not owner else self.env["res.partner"]
                 Agreement.create({"meeting_id": meeting.id, "name": a["name"][:200], "owner_id": owner.id, "owner_partner_id": contacto.id,
                                   "due_date": meeting._parse_due(a.get("due_date")),
                                   "kind": a.get("kind") if a.get("kind") in ("compromiso", "acuerdo", "tarea", "cambio") else "compromiso", "proposed_by_ai": True})
-        for q in data.get("questions", []):
-            self.env["aq.ops.meeting.question"].create({"meeting_id": meeting.id, "name": q[:200]})
+        for q in (data.get("questions") or []):
+            text = _s(q.get("name") or q.get("question") or q.get("text")) if isinstance(q, dict) else _s(q)
+            if text.strip():
+                self.env["aq.ops.meeting.question"].create({"meeting_id": meeting.id, "name": text[:200]})
         return data
 
     def _heuristic_meeting(self, text):
@@ -310,13 +338,15 @@ class OpsAI(models.AbstractModel):
         cases = (lib or {}).get("cases", []) if isinstance(lib, dict) else []
         if not cases:
             out = self.chat(tier="deep", prompt="Propón 5 casos de prueba (JSON {\"cases\": [{\"name\", \"steps\", \"expected\"}]}) para: %s. Criterios: %s" % (item.name, item.acceptance_criteria or item.description or ""), json_mode=True)
-            cases = (self.parse_json(out) or {}).get("cases", []) if out else []
+            parsed = self.parse_json(out) if out else None
+            cases = parsed.get("cases", []) if isinstance(parsed, dict) else []
+            cases = [c for c in (cases or []) if isinstance(c, dict)]
         if not cases:
             cases = [{"name": "Flujo principal: %s" % item.name, "steps": "Ejecutar el flujo descrito en los criterios", "expected": item.acceptance_criteria or "Cumple criterios"},
                      {"name": "Validación de datos obligatorios", "steps": "Omitir campos requeridos", "expected": "El sistema impide continuar"},
                      {"name": "Permisos", "steps": "Ejecutar con un usuario sin permisos", "expected": "Acceso denegado"}]
         for c in cases[:8]:
-            self.env["aq.ops.test.case"].create({"name": c.get("name", "Caso")[:200], "steps": c.get("steps"), "expected": c.get("expected"), "item_id": item.id, "project_id": item.project_id.id, "generated_by_ai": True})
+            self.env["aq.ops.test.case"].create({"name": str(c.get("name") or "Caso")[:200], "steps": str(c.get("steps") or ""), "expected": str(c.get("expected") or ""), "item_id": item.id, "project_id": item.project_id.id, "generated_by_ai": True})
         return len(cases)
 
     @api.model

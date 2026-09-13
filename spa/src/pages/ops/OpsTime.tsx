@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { fmtDate, ops, today } from '../../api'
+import { fmtDate, isoLocal, ops, today } from '../../api'
 import { useApp } from '../../context'
 import Many2one from '../../components/Many2one'
 import { useActiveProject } from '../../project'
@@ -20,7 +20,7 @@ export default function OpsTime() {
   useEffect(() => { ops.capacityForecast(4).then(r => setFc(r.forecast)).catch(() => {}) }, [])
   const load = useCallback(() => ops.week(week).then(r => { setD(r); setRunning(r.entries.find((e: any) => e.running) || null) }).catch((e: any) => toast(e.message, 'err')), [week, toast])
   useEffect(() => { load() }, [load])
-  const shift = (n: number) => { const [y, w] = week.split('-W').map(Number); const jan4 = new Date(y, 0, 4); const monday = new Date(jan4); monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (w - 1 + n) * 7); setWeek(weekOf(monday.toISOString().slice(0, 10))) }
+  const shift = (n: number) => { const [y, w] = week.split('-W').map(Number); const jan4 = new Date(y, 0, 4); const monday = new Date(jan4); monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (w - 1 + n) * 7); setWeek(weekOf(isoLocal(monday))) }
   const add = async () => { try { await rapi.create('timesheets', { ...form, member_id: user?.member_id, project_id: form.project_id?.id || null, item_id: form.item_id?.id || null }); toast('Tiempo registrado', 'ok'); load() } catch (e: any) { toast(e.message, 'err') } }
   const submitWeek = async () => { const ids = d.entries.filter((e: any) => e.state === 'borrador').map((e: any) => e.id); for (const id of ids) await rapi.action('timesheets', id, 'action_submit').catch(() => {}); toast('Semana enviada a aprobación', 'ok'); load() }
   const approve = async () => { try { const r = await ops.approveWeek(week); toast(`${r.approved} registros aprobados · horas facturables enviadas a Administración`, 'ok'); load() } catch (e: any) { toast(e.message, 'err') } }

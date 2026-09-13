@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from odoo.exceptions import UserError
 from odoo import api, fields, models, _
 
 
@@ -108,7 +109,7 @@ class Report(models.Model):
                 "projects_with_next_action_pct": pct(len(active_projects.filtered("has_next_action")), len(active_projects)),
                 "overdue_by_member": overdue_by_member,
                 "deliverables_accepted": len(accepted), "deliverables_total": len(deliverables),
-                "contracts_current": len(legal.filtered(lambda l: l.exists and l.is_current)), "contracts_missing": len(legal.filtered("is_missing")),
+                "contracts_current": len(legal.filtered(lambda l: l.document_exists and l.is_current)), "contracts_missing": len(legal.filtered("is_missing")),
                 "prospects_without_followup": len(prospects.filtered("is_abandoned")),
                 "avg_admin_response_days": round(sum(resp_times) / len(resp_times), 1) if resp_times else 0,
                 "complete_closures": len(closed_complete), "closed_projects": len(closed_projects),
@@ -160,6 +161,8 @@ class Report(models.Model):
         data = self.dashboard_data(date_from, date_to)
         s, k = data["summary"], data["kpis"]
         labels = dict(self._fields["report_type"].selection)
+        if report_type not in labels:
+            raise UserError(_("Tipo de reporte inválido: %s") % report_type)
         html = ["<h2>%s · %s a %s</h2>" % (labels[report_type], date_from, date_to)]
         html.append("<h3>Pendientes, avances y riesgos</h3><ul>")
         html.append("<li>Proyectos activos: <b>%s</b> (sin actividad: %s · sin siguiente acción: %s · pausados: %s)</li>" % (s["active_projects"], s["stale_projects"], s["projects_without_next_action"], s["paused_projects"]))

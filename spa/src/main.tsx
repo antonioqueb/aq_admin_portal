@@ -3,10 +3,11 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { AppProvider } from './context'
+import { store } from './api'
 import './styles.css'
 
 // Tema: oscuro por defecto; el claro se activa a voluntad y se recuerda.
-document.documentElement.setAttribute('data-theme', localStorage.getItem('aq_theme') || 'dark')
+document.documentElement.setAttribute('data-theme', store.get('aq_theme') || 'dark')
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

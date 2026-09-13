@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, today } from '../api'
+import { api, isoLocal, today } from '../api'
 import { useApp } from '../context'
 import Many2one from './Many2one'
 
@@ -9,8 +9,8 @@ const DURACIONES = [15, 30, 45, 60, 90, 120]
 const SLOTS: string[] = []
 for (let h = 7; h <= 20; h++) { SLOTS.push(`${String(h).padStart(2, '0')}:00`); if (h < 20) SLOTS.push(`${String(h).padStart(2, '0')}:30`) }
 
-const addDaysISO = (iso: string, n: number) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10) }
-const nextMonday = () => { const d = new Date(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return d.toISOString().slice(0, 10) }
+const addDaysISO = (iso: string, n: number) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return isoLocal(d) }
+const nextMonday = () => { const d = new Date(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return isoLocal(d) }
 const humanDay = (iso: string) => { const d = new Date(iso + 'T12:00:00'); return `${DIAS[d.getDay()]} ${d.getDate()} de ${MESES[d.getMonth()]}` }
 const addMin = (hhmm: string, m: number) => { const [h, mi] = hhmm.split(':').map(Number); const t = Math.max(0, Math.min(23 * 60 + 55, h * 60 + mi + m)); return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}` }
 

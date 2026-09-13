@@ -15,15 +15,23 @@ class OpsEngine(models.AbstractModel):
     _description = "Alphaops: motor"
 
     # ------------------------------------------------------------ cron
+    def _cron_step(self, name, fn):
+        """Cada paso del cron va en su propio savepoint: un fallo (p. ej. IA o correo caídos) no deshace los demás."""
+        try:
+            with self.env.cr.savepoint():
+                fn()
+        except Exception:  # noqa
+            _logger.exception("cron_daily · paso %s", name)
+
     @api.model
     def cron_daily(self):
-        self.env["aq.ops.automation"].search([("active", "=", True), ("trigger", "=", "schedule_daily")]).run()
-        self.env["aq.ops.event"].search([("state", "=", "pendiente")]).process()
-        self.env["aq.ops.breakglass"].search([("state", "=", "activo"), ("end", "<", fields.Datetime.now())]).write({"state": "vencido"})
-        self.env["aq.ops.notification"].send_digest("daily")
+        self._cron_step("automatizaciones diarias", lambda: self.env["aq.ops.automation"].search([("active", "=", True), ("trigger", "=", "schedule_daily")]).run())
+        self._cron_step("eventos pendientes", lambda: self.env["aq.ops.event"].search([("state", "=", "pendiente")]).process())
+        self._cron_step("breakglass vencidos", lambda: self.env["aq.ops.breakglass"].search([("state", "=", "activo"), ("end", "<", fields.Datetime.now())]).write({"state": "vencido"}))
+        self._cron_step("digest diario", lambda: self.env["aq.ops.notification"].send_digest("daily"))
         if fields.Date.today().weekday() == 0:
-            self.env["aq.ops.automation"].search([("active", "=", True), ("trigger", "=", "schedule_weekly")]).run()
-            self.env["aq.ops.notification"].send_digest("weekly")
+            self._cron_step("automatizaciones semanales", lambda: self.env["aq.ops.automation"].search([("active", "=", True), ("trigger", "=", "schedule_weekly")]).run())
+            self._cron_step("digest semanal", lambda: self.env["aq.ops.notification"].send_digest("weekly"))
         return True
 
     def _N(self):
@@ -492,9 +500,14 @@ class OpsRetention(models.AbstractModel):
 
     @api.model
     def cron_daily(self):
+        # retención y anomalías ya corren como automatizaciones diarias (data/ops_seed.xml); aquí solo se garantiza
+        # que se ejecuten si alguien desactivó esas automatizaciones.
         res = super().cron_daily()
-        self.apply_retention()
-        self.auto_anomalies()
+        Auto = self.env["aq.ops.automation"]
+        if not Auto.search_count([("active", "=", True), ("code", "=", "retention")]):
+            self._cron_step("retención", self.apply_retention)
+        if not Auto.search_count([("active", "=", True), ("code", "=", "anomalies")]):
+            self._cron_step("anomalías", self.auto_anomalies)
         return res
 
     @api.model

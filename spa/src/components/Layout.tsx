@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { api, ops } from '../api'
+import { api, ops, store } from '../api'
 import { useApp } from '../context'
 import CommandPalette from './CommandPalette'
 import { useActiveProject, setActiveProject } from '../project'
@@ -60,6 +60,7 @@ export default function Layout() {
   }, [app, nav])
   useEffect(() => { window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [onKey])
   if (!user || !schema) return <div className="empty">Su cuenta no tiene acceso a esta aplicación.</div>
+  const [navMore, setNavMore] = useState(store.get('aq_nav_more') === '1')
   const resources = Object.values(schema.resources).filter(r => r.section).sort((a, b) => a.order - b.order)
   const bySection = (key: string) => resources.filter(r => r.section === key)
   const switchApp = (a: 'admin' | 'ops') => { setApp(a); nav(a === 'ops' ? '/ops' : '/') }
@@ -136,18 +137,22 @@ export default function Layout() {
           {isOps && !external && (<>
             <div className="section">Operaciones</div>
             <NavLink to="/ops" end>Mi trabajo</NavLink>
-            <NavLink to="/ops/today">Hoy · acciones rápidas</NavLink>
-            <NavLink to="/ops/sessions">Sesiones (generador y mapa)</NavLink>
-            {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/portfolio">Torre de control del portafolio</NavLink>}
-            {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/board">Tablero de trabajo (vistas)</NavLink>}
-            {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/requests">Bandeja de solicitudes</NavLink>}
-            {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/time">Tiempo y capacidad</NavLink>}
-            <NavLink to="/ops/notifications">Centro de notificaciones</NavLink>
-            {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/reports">Reportes operativos</NavLink>}
+            {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/board">Tablero</NavLink>}
+            {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/r/projects">Proyectos</NavLink>}
+            {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/requests">Solicitudes</NavLink>}
+            <NavLink to="/ops/sessions">Sesiones</NavLink>
+            {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/time">Tiempo</NavLink>}
+            <NavLink to="/ops/notifications">Notificaciones</NavLink>
             <NavLink to="/ops/ai">✦ Copiloto de IA</NavLink>
-            <NavLink to="/ops/google">Google Workspace</NavLink>
-            {schema.sections.map(s => { const items = bySection(s.key); if (!items.length) return null; return (
-              <div key={s.key}><div className="section">{s.label}</div>{items.map(r => <NavLink key={r.key} to={'/ops/r/' + r.key}>{r.label}</NavLink>)}</div>) })}
+            <details className="nav-more" open={navMore} onToggle={e => { const o = (e.currentTarget as HTMLDetailsElement).open; setNavMore(o); store.set('aq_nav_more', o ? '1' : '0') }}>
+              <summary>Más (torre de control, reportes, Google, catálogos)</summary>
+              {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/today">Hoy · acciones rápidas</NavLink>}
+              {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/portfolio">Torre de control</NavLink>}
+              {user.ops_role !== 'admin_liaison' && <NavLink to="/ops/reports">Reportes operativos</NavLink>}
+              <NavLink to="/ops/google">Google Workspace</NavLink>
+              {schema.sections.map(s => { const items = bySection(s.key).filter(r => r.key !== 'projects'); if (!items.length) return null; return (
+                <div key={s.key}><div className="section">{s.label}</div>{items.map(r => <NavLink key={r.key} to={'/ops/r/' + r.key}>{r.label}</NavLink>)}</div>) })}
+            </details>
           </>)}
         </nav>
         <div className="drawer-foot">

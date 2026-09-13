@@ -63,17 +63,22 @@ class Employee(models.Model):
     checklist_ids = fields.One2many("aq.portal.checklist.item", "employee_id", string="Checklist de incorporación / separación")
     document_ids = fields.One2many("aq.portal.document", "employee_id", string="Expediente documental")
     open_access_count = fields.Integer(compute="_compute_flags", string="Accesos activos")
-    has_active_access_after_exit = fields.Boolean(compute="_compute_flags", store=True, string="Accesos activos tras salida (riesgo)")
+    has_active_access_after_exit = fields.Boolean(compute="_compute_access_risk", store=True, string="Accesos activos tras salida (riesgo)")
     missing_documents = fields.Integer(compute="_compute_flags", string="Documentos faltantes")
     onboarding_progress = fields.Float(compute="_compute_flags", string="Avance de incorporación (%)")
     offboarding_progress = fields.Float(compute="_compute_flags", string="Avance de separación (%)")
+
+    @api.depends("access_ids.state", "state")
+    def _compute_access_risk(self):
+        """Campo almacenado: método propio (Odoo exige separar cálculos almacenados de los no almacenados)."""
+        for e in self:
+            e.has_active_access_after_exit = e.state == "baja" and bool(e.access_ids.filtered(lambda a: a.state == "activo"))
 
     @api.depends("access_ids.state", "state", "required_document_ids.received", "checklist_ids.done", "checklist_ids.kind")
     def _compute_flags(self):
         for e in self:
             active_access = e.access_ids.filtered(lambda a: a.state == "activo")
             e.open_access_count = len(active_access)
-            e.has_active_access_after_exit = e.state == "baja" and bool(active_access)
             e.missing_documents = len(e.required_document_ids.filtered(lambda d: not d.received))
             on = e.checklist_ids.filtered(lambda c: c.kind == "alta")
             off = e.checklist_ids.filtered(lambda c: c.kind == "baja")

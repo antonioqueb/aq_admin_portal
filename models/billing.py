@@ -1,3 +1,5 @@
+from odoo.fields import Domain
+from odoo.exceptions import UserError
 from odoo import api, fields, models, _
 
 
@@ -83,7 +85,7 @@ class InvoiceSchedule(models.Model):
         dom = [("scheduled_date", "<", fields.Date.today()), ("state", "in", ("por_programar", "programada", "info_enviada", "detenida"))]
         if (operator == "=" and value) or (operator == "!=" and not value):
             return dom
-        return ["!"] + dom
+        return list(~Domain(dom))
 
     @api.onchange("partner_id")
     def _onchange_partner(self):
@@ -119,6 +121,8 @@ class InvoiceSchedule(models.Model):
         for r in self:
             vals = {"state": "emitida", "issue_date": r.issue_date or fields.Date.today()}
             if not r.receivable_id:
+                if not r.invoice_number:
+                    raise UserError(_("Capture el folio de la factura antes de marcarla como emitida."))
                 rec = self.env["aq.portal.receivable"].create({
                     "partner_id": r.partner_id.id, "project_id": r.project_id.id, "invoice_schedule_id": r.id,
                     "invoice_id": r.invoice_id.id, "invoice_number": r.invoice_number,

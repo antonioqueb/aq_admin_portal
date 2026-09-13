@@ -1,3 +1,4 @@
+from odoo.fields import Domain
 from odoo import api, fields, models, _
 
 
@@ -77,7 +78,7 @@ class Agreement(models.Model):
         dom = [("due_date", "<", fields.Date.today()), ("state", "not in", ("cerrado", "cancelado"))]
         if (operator == "=" and value) or (operator == "!=" and not value):
             return dom
-        return ["!"] + dom
+        return list(~Domain(dom))
 
     def write(self, vals):
         if "due_date" in vals:

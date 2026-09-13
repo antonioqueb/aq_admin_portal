@@ -302,11 +302,11 @@ RESOURCES = {
     "legal": {
         "model": "aq.portal.legal.item", "label": "Inventario legal / matriz de contratos", "singular": "Documento legal",
         "section": "prioritarias", "icon": "shield", "order": 90, "attachments": True, "chatter": True,
-        "list": ["category", "name", "partner_id", "exists", "is_current", "is_missing", "date_end", "risk_level", "priority", "status", "responsible_id"],
-        "filters": ["category", "status", "exists", "is_current", "is_missing", "risk_level", "priority", "needs_redo", "is_expired"],
+        "list": ["category", "name", "partner_id", "document_exists", "is_current", "is_missing", "date_end", "risk_level", "priority", "status", "responsible_id"],
+        "filters": ["category", "status", "document_exists", "is_current", "is_missing", "risk_level", "priority", "needs_redo", "is_expired"],
         "groups": [
             {"title": "Documento", "fields": ["name", "category", "partner_id", "employee_id", "vendor_id", "project_id", "template_id"]},
-            {"title": "Estado real", "fields": ["exists", "is_current", "is_missing", "is_signed", "date_signed", "date_start", "date_end", "days_to_expiry", "is_expired", "status", "needs_redo"]},
+            {"title": "Estado real", "fields": ["document_exists", "is_current", "is_missing", "is_signed", "date_signed", "date_start", "date_end", "days_to_expiry", "is_expired", "status", "needs_redo"]},
             {"title": "Riesgo y prioridad", "fields": ["risk_level", "priority", "responsible_id", "review_date", "findings", "action_plan", "notes"]},
         ],
         "tabs": [{"field": "document_ids", "resource": "documents", "parent_field": "legal_item_id", "label": "Documentos en expediente"}],

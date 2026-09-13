@@ -1,3 +1,4 @@
+from odoo.fields import Domain
 from odoo import api, fields, models, _
 
 PAYABLE_CATEGORIES = [
@@ -57,7 +58,7 @@ class Payable(models.Model):
         dom = [("due_date", "<", fields.Date.today()), ("payment_state", "=", "programado")]
         if (operator == "=" and value) or (operator == "!=" and not value):
             return dom
-        return ["!"] + dom
+        return list(~Domain(dom))
 
     def action_authorize(self):
         pu = self.env.context.get("portal_user_id")

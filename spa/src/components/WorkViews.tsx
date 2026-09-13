@@ -8,6 +8,33 @@ export const STATES: [string, string][] = [['backlog', 'Backlog'], ['por_hacer',
 const VIEWS: [string, string][] = [['backlog', 'Backlog'], ['kanban', 'Kanban'], ['sprint', 'Sprints'], ['list', 'Lista'], ['calendar', 'Calendario'], ['timeline', 'Cronograma'], ['gantt', 'Gantt'], ['workload', 'Carga'], ['deps', 'Dependencias'], ['roadmap', 'Roadmap'], ['deliverable', 'Por entregable'], ['client', 'Por cliente'], ['personal', 'Personal']]
 const CLIENT_VIEWS = ['list', 'calendar', 'roadmap', 'deliverable']
 
+type Member = { id: number; name: string }
+/** Alta rápida por columna. Vive fuera de WorkViews para que su <input> no se desmonte en cada tecla. */
+function QuickAdd({ type, name, onType, onName, onEnter }: { type: string; name: string; onType: (t: string) => void; onName: (n: string) => void; onEnter: () => void }) {
+  return (
+    <div className="quick-row" onClick={e => e.stopPropagation()}>
+      <select className="inline" value={type} onChange={e => onType(e.target.value)}><option value="tarea">Tarea</option><option value="historia">Historia</option><option value="defecto">Defecto</option><option value="entregable">Entregable</option><option value="requerimiento">Requerimiento</option></select>
+      <input className="quick" type="text" placeholder="+ Título y Enter…" value={name} onChange={e => onName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') onEnter() }} />
+    </div>
+  )
+}
+/** Tarjeta del tablero (estable entre renders: el arrastre no destruye el nodo). */
+function Card({ i, external, projectMode, members, onDragStart, onOpen, onAssignee, onDue, onDone }: { i: any; external: boolean; projectMode?: boolean; members: Member[]; onDragStart: (i: any) => void; onOpen: (i: any) => void; onAssignee: (i: any, id: string) => void; onDue: (i: any, d: string) => void; onDone: (i: any) => void }) {
+  const done = ['cerrado', 'cancelado'].includes(i.state)
+  return (
+    <div className={'kcard p' + i.priority + (i.waiting_client ? ' wc' : '')} draggable={!external} onDragStart={() => onDragStart(i)} onClick={() => onOpen(i)}>
+      <div>{i.name}</div>
+      <div className="m"><span>{i.type}</span>{i.due && <span title="Fecha comprometida">{fmtDate(i.due)}</span>}{i.waiting_client && <span>⏳ cliente</span>}{!projectMode && i.project && <span>{i.project}</span>}</div>
+      {!external && <div className="m inline-ctl" onClick={e => e.stopPropagation()}>
+        <select className="inline" value={members.find(m => m.name === i.assignee)?.id || ''} onChange={e => onAssignee(i, e.target.value)} title="Responsable"><option value="">sin responsable</option>{members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+        <input type="date" className="inline-date" value={i.due || ''} onChange={e => onDue(i, e.target.value)} title="Fecha comprometida" />
+        {!done && <button className="btn done small" onClick={() => onDone(i)} title="Marcar como terminado (pasa a Cerrado)">✓</button>}
+      </div>}
+      {external && <div className="m">{i.due && <span>{fmtDate(i.due)}</span>}</div>}
+    </div>
+  )
+}
+
 export default function WorkViews({ items, sprints, reload, view, setView, projectMode, projectId }: { items: any[]; sprints?: any[]; reload: () => void; view: string; setView: (v: string) => void; projectMode?: boolean; projectId?: number }) {
   const { toast, user, schema, rapi } = useApp()
   const [quick, setQuick] = useState<Record<string, string>>({})
@@ -58,7 +85,7 @@ export default function WorkViews({ items, sprints, reload, view, setView, proje
     const t = quickType[state] || 'tarea'
     try { const r = await rapi.create('items', { name, project_id: projectId, item_type: t, state: state === 'backlog' && t === 'defecto' ? 'por_hacer' : state, ...TEMPLATES[t] }); setQuick({ ...quick, [state]: '' }); toast(`${t} creado`, 'ok'); reload(); if (t !== 'tarea') setPeek(r.record.id) } catch (e: any) { toast(e.message, 'err') }
   }
-  const QuickAdd = ({ state }: { state: string }) => <div className="quick-row" onClick={e => e.stopPropagation()}><select className="inline" value={quickType[state] || 'tarea'} onChange={e => setQuickType({ ...quickType, [state]: e.target.value })}><option value="tarea">Tarea</option><option value="historia">Historia</option><option value="defecto">Defecto</option><option value="entregable">Entregable</option><option value="requerimiento">Requerimiento</option></select><input className="quick" type="text" placeholder="+ Título y Enter…" value={quick[state] || ''} onChange={e => setQuick({ ...quick, [state]: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') quickAdd(state) }} /></div>
+  const QA = (state: string) => <QuickAdd type={quickType[state] || 'tarea'} name={quick[state] || ''} onType={t => setQuickType({ ...quickType, [state]: t })} onName={n => setQuick(q => ({ ...q, [state]: n }))} onEnter={() => quickAdd(state)} />
   const setAssignee = (i: any, id: string) => move(i, { assignee_id: id ? Number(id) : null })
   const setDue = (i: any, d: string) => { if (i.due && d !== i.due) { const r = prompt('Motivo de la reprogramación:'); if (r === null) return; move(i, { date_due: d, reason: r }) } else move(i, { date_due: d }) }
   const applyBulk = async () => {
@@ -67,17 +94,8 @@ export default function WorkViews({ items, sprints, reload, view, setView, proje
     for (const id of sel) { try { await ops.move(id, { state: bulkState, force_wip: true }); ok++ } catch (e: any) { toast(`${e.message}`, 'err') } }
     toast(`${ok} elementos → ${STATES.find(s => s[0] === bulkState)?.[1]}`, 'ok'); setSel([]); setBulkState(''); reload()
   }
-  const Card = ({ i }: { i: any }) => (
-    <div className={'kcard p' + i.priority + (i.waiting_client ? ' wc' : '')} draggable={!external} onDragStart={() => setDrag(i)} onClick={() => open(i)}>
-      <div>{i.name}</div>
-      <div className="m"><span>{i.type}</span>{i.estimate ? <span>{i.estimate}h</span> : null}{i.milestone && <span>◆ {i.milestone}</span>}{i.waiting_client && <span>⏳ cliente</span>}{!projectMode && i.project && <span>{i.project}</span>}</div>
-      {!external && <div className="m inline-ctl" onClick={e => e.stopPropagation()}>
-        <select className="inline" value={members.find(m => m.name === i.assignee)?.id || ''} onChange={e => setAssignee(i, e.target.value)} title="Responsable"><option value="">sin responsable</option>{members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
-        <input type="date" className="inline-date" value={i.due || ''} onChange={e => setDue(i, e.target.value)} title="Fecha comprometida" />
-      </div>}
-      {external && <div className="m">{i.due && <span>{fmtDate(i.due)}</span>}</div>}
-    </div>
-  )
+  const markDone = (i: any) => move(i, { state: 'cerrado' })
+  const C = (i: any) => <Card key={i.id} i={i} external={external} projectMode={projectMode} members={members} onDragStart={setDrag} onOpen={open} onAssignee={setAssignee} onDue={setDue} onDone={markDone} />
   const byState = (s: string) => rows.filter(i => i.state === s).sort((a, b) => a.rank - b.rank)
   const t = today()
   return (
@@ -92,21 +110,21 @@ export default function WorkViews({ items, sprints, reload, view, setView, proje
           <span style={{ fontSize: 11, color: 'var(--mute2)', marginLeft: 'auto' }}>Arrastra el fondo para desplazarte · Shift + rueda</span>
         </div>
         <div className="kanban" onMouseDown={dragScroll} style={{ ['--colw' as any]: colW + 'px' }}>
-          {STATES.filter(s => !external || !['backlog', 'por_hacer', 'en_progreso', 'bloqueado', 'desarrollo_completado', 'revision_tecnica', 'qa_interno', 'correccion', 'regresion'].includes(s[0])).filter(s => !hideEmpty || byState(s[0]).length > 0 || ['backlog', 'por_hacer', 'en_progreso'].includes(s[0])).map(([s, l]) => collapsed.includes(s) ? (
+          {STATES.filter(s => !external || !['backlog', 'por_hacer', 'en_progreso', 'bloqueado', 'desarrollo_completado', 'revision_tecnica', 'qa_interno', 'correccion', 'regresion'].includes(s[0])).filter(s => !hideEmpty || byState(s[0]).length > 0 || ['backlog', 'por_hacer', 'en_progreso', 'cerrado'].includes(s[0])).map(([s, l]) => collapsed.includes(s) ? (
             <div key={s} className="kcol collapsed" onClick={() => toggleCol(s)} title="Expandir"><span className="vert">{l} · {byState(s).length}</span></div>
           ) : (
             <div key={s} className={'kcol' + (over === s ? ' over' : '')} onDragOver={e => { e.preventDefault(); setOver(s) }} onDragLeave={() => setOver(null)} onDrop={() => { if (drag && drag.state !== s) move(drag, { state: s }); setDrag(null); setOver(null) }}>
               <h4><span>{l}</span><span className="cnt">{byState(s).length}<button className="fold" onClick={() => toggleCol(s)} title="Colapsar">‹</button></span></h4>
               <div className="kbody">
-                {!external && projectMode && ['backlog', 'por_hacer', 'en_progreso'].includes(s) && <QuickAdd state={s} />}
-                {byState(s).map(i => <Card key={i.id} i={i} />)}
-                {byState(s).length === 0 && <div className="kempty">Suelta aquí</div>}
+                {!external && projectMode && ['backlog', 'por_hacer', 'en_progreso'].includes(s) && QA(s)}
+                {byState(s).map(C)}
+                {byState(s).length === 0 && <div className="kempty">{s === 'cerrado' ? 'Suelta aquí para terminar ✓' : 'Suelta aquí'}</div>}
               </div>
             </div>))}
         </div>
       </>)}
       {view === 'backlog' && (
-        <div className="card tight">{!external && projectMode && <div style={{ marginBottom: 8 }}><QuickAdd state="backlog" /></div>}{rows.filter(i => ['backlog', 'por_hacer'].includes(i.state)).sort((a, b) => a.rank - b.rank).map((i, idx, arr) => (
+        <div className="card tight">{!external && projectMode && <div style={{ marginBottom: 8 }}>{QA('backlog')}</div>}{rows.filter(i => ['backlog', 'por_hacer'].includes(i.state)).sort((a, b) => a.rank - b.rank).map((i, idx, arr) => (
           <div key={i.id} className="wl" style={{ cursor: 'pointer' }}>
             <span className="badge">{idx + 1}</span><span style={{ flex: 1 }} onClick={() => open(i)}>{i.name} <span className="badge">{i.type}</span>{i.priority === '2' && <span className="badge err">crítica</span>}</span>
             <span style={{ color: 'var(--muted)', fontSize: 12 }}>{i.assignee || '—'} · {i.estimate || 0}h</span>
@@ -114,21 +132,21 @@ export default function WorkViews({ items, sprints, reload, view, setView, proje
           </div>))}{rows.filter(i => ['backlog', 'por_hacer'].includes(i.state)).length === 0 && <div className="empty">Backlog vacío</div>}</div>
       )}
       {view === 'sprint' && (
-        <div className="grid cols-2">{(sprints || []).map(s => <div key={s.id} className="card" onDragOver={e => e.preventDefault()} onDrop={() => { if (drag) move(drag, { sprint_id: s.id }); setDrag(null) }}><h2>{s.name} <span className="badge">{s.state}</span></h2><div style={{ color: 'var(--muted)', fontSize: 12 }}>{fmtDate(s.start)} → {fmtDate(s.end)} · {s.goal}</div><div className="progress" style={{ margin: '6px 0' }}><div style={{ width: (s.items ? s.done / s.items * 100 : 0) + '%' }} /></div><div className="meta" style={{ fontSize: 12 }}>{s.done}/{s.items} · {s.committed} h comprometidas / {s.capacity} h</div>{rows.filter(i => i.sprint === s.name).map(i => <Card key={i.id} i={i} />)}</div>)}
-          <div className="card" onDragOver={e => e.preventDefault()} onDrop={() => { if (drag) move(drag, { sprint_id: null }); setDrag(null) }}><h2>Sin sprint</h2>{rows.filter(i => !i.sprint && !['cerrado', 'aceptado', 'liberado', 'verificado'].includes(i.state)).map(i => <Card key={i.id} i={i} />)}</div></div>
+        <div className="grid cols-2">{(sprints || []).map(s => <div key={s.id} className="card" onDragOver={e => e.preventDefault()} onDrop={() => { if (drag) move(drag, { sprint_id: s.id }); setDrag(null) }}><h2>{s.name} <span className="badge">{s.state}</span></h2><div style={{ color: 'var(--muted)', fontSize: 12 }}>{fmtDate(s.start)} → {fmtDate(s.end)} · {s.goal}</div><div className="progress" style={{ margin: '6px 0' }}><div style={{ width: (s.items ? s.done / s.items * 100 : 0) + '%' }} /></div><div className="meta" style={{ fontSize: 12 }}>{s.done}/{s.items} · {s.committed} h comprometidas / {s.capacity} h</div>{rows.filter(i => i.sprint === s.name).map(C)}</div>)}
+          <div className="card" onDragOver={e => e.preventDefault()} onDrop={() => { if (drag) move(drag, { sprint_id: null }); setDrag(null) }}><h2>Sin sprint</h2>{rows.filter(i => !i.sprint && !['cerrado', 'aceptado', 'liberado', 'verificado'].includes(i.state)).map(C)}</div></div>
       )}
       {view === 'list' && (
         <div>{!external && sel.length > 0 && <div className="toolbar bulk"><span className="badge primary">{sel.length} seleccionados</span><select value={bulkState} onChange={e => setBulkState(e.target.value)} style={{ width: 'auto' }}><option value="">Cambiar estado a…</option>{STATES.map(st => <option key={st[0]} value={st[0]}>{st[1]}</option>)}</select><button className="btn small" onClick={applyBulk} disabled={!bulkState}>Aplicar</button><button className="btn link small" onClick={() => setSel([])}>Limpiar</button></div>}
-        <div className="table-wrap"><table className="list"><thead><tr>{!external && <th><input type="checkbox" checked={sel.length === rows.length && rows.length > 0} onChange={e => setSel(e.target.checked ? rows.map(r => r.id) : [])} /></th>}<th>Elemento</th><th>Tipo</th><th>Estado</th>{!external && <th>Responsable</th>}<th>Prio.</th><th>Vence</th>{!external && <><th className="num">Est.</th><th className="num">Rest.</th><th className="num">Reg.</th></>}<th>Hito</th>{!projectMode && <th>Proyecto</th>}</tr></thead>
-          <tbody>{rows.map(i => <tr key={i.id} className="row" onClick={() => open(i)}>{!external && <td onClick={e => e.stopPropagation()}><input type="checkbox" checked={sel.includes(i.id)} onChange={e => setSel(e.target.checked ? [...sel, i.id] : sel.filter(x => x !== i.id))} /></td>}<td>{i.name}{i.accepted && <span className="badge ok" style={{ marginLeft: 4 }}>aceptado</span>}</td><td>{i.type}</td><td onClick={e => e.stopPropagation()}>{external ? <span className="badge">{STATES.find(s => s[0] === i.state)?.[1]}</span> : <select className="inline" value={i.state} onChange={e => move(i, { state: e.target.value })}>{STATES.map(st => <option key={st[0]} value={st[0]}>{st[1]}</option>)}</select>}</td>{!external && <td onClick={e => e.stopPropagation()}><select className="inline" value={members.find(m => m.name === i.assignee)?.id || ''} onChange={e => setAssignee(i, e.target.value)}><option value="">—</option>{members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></td>}<td>{i.priority === '2' ? 'crítica' : i.priority === '1' ? 'alta' : 'normal'}</td><td onClick={e => e.stopPropagation()}>{external ? fmtDate(i.due) : <input type="date" className="inline-date" value={i.due || ''} onChange={e => setDue(i, e.target.value)} />}</td>{!external && <><td className="num">{i.estimate}</td><td className="num">{i.remaining}</td><td className="num">{i.spent}</td></>}<td>{i.milestone || '—'}</td>{!projectMode && <td>{i.project}</td>}</tr>)}</tbody></table></div></div>
+        <div className="table-wrap"><table className="list"><thead><tr>{!external && <th><input type="checkbox" checked={sel.length === rows.length && rows.length > 0} onChange={e => setSel(e.target.checked ? rows.map(r => r.id) : [])} /></th>}<th>Elemento</th><th>Tipo</th><th>Estado</th>{!external && <th>Responsable</th>}<th>Prio.</th><th>Vence</th>{!external && <><th className="num">Est.</th><th className="num">Rest.</th><th className="num">Reg.</th></>}<th>Hito</th>{!projectMode && <th>Proyecto</th>}{!external && <th></th>}</tr></thead>
+          <tbody>{rows.map(i => <tr key={i.id} className="row" onClick={() => open(i)}>{!external && <td onClick={e => e.stopPropagation()}><input type="checkbox" checked={sel.includes(i.id)} onChange={e => setSel(e.target.checked ? [...sel, i.id] : sel.filter(x => x !== i.id))} /></td>}<td>{i.name}{i.accepted && <span className="badge ok" style={{ marginLeft: 4 }}>aceptado</span>}</td><td>{i.type}</td><td onClick={e => e.stopPropagation()}>{external ? <span className="badge">{STATES.find(s => s[0] === i.state)?.[1]}</span> : <select className="inline" value={i.state} onChange={e => move(i, { state: e.target.value })}>{STATES.map(st => <option key={st[0]} value={st[0]}>{st[1]}</option>)}</select>}</td>{!external && <td onClick={e => e.stopPropagation()}><select className="inline" value={members.find(m => m.name === i.assignee)?.id || ''} onChange={e => setAssignee(i, e.target.value)}><option value="">—</option>{members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></td>}<td>{i.priority === '2' ? 'crítica' : i.priority === '1' ? 'alta' : 'normal'}</td><td onClick={e => e.stopPropagation()}>{external ? fmtDate(i.due) : <input type="date" className="inline-date" value={i.due || ''} onChange={e => setDue(i, e.target.value)} />}</td>{!external && <><td className="num">{i.estimate}</td><td className="num">{i.remaining}</td><td className="num">{i.spent}</td></>}<td>{i.milestone || '—'}</td>{!projectMode && <td>{i.project}</td>}{!external && <td onClick={e => e.stopPropagation()}>{!['cerrado', 'cancelado'].includes(i.state) && <button className="btn done small" onClick={() => markDone(i)} title="Marcar como terminado">✓</button>}</td>}</tr>)}</tbody></table></div></div>
       )}
       {view === 'calendar' && (() => { const days = Array.from(new Set(rows.filter(i => i.due).map(i => i.due))).sort(); return <div className="card">{days.length === 0 && <div className="empty">Sin fechas</div>}{days.map(d => <div className="cal-day" key={d}><div className={'d' + (d === t ? ' today' : '')}>{fmtDate(d)} {d < t && <span className="badge err">vencido</span>}</div>{rows.filter(i => i.due === d).map(i => <div key={i.id} className="cal-ev"><span className="badge">{i.type}</span><a href="#" onClick={e => { e.preventDefault(); open(i) }}>{i.name}</a>{!external && <span style={{ color: 'var(--muted)', fontSize: 12 }}>· {i.assignee || '—'}</span>}</div>)}</div>)}</div> })()}
       {(view === 'gantt' || view === 'timeline' || view === 'roadmap') && <Gantt rows={view === 'roadmap' ? rows.filter(i => ['epica', 'entregable', 'objetivo', 'capacidad', 'cambio'].includes(i.type)) : rows} open={open} baseline={view === 'gantt'} />}
       {view === 'workload' && (() => { const m: Record<string, any[]> = {}; rows.filter(i => !['cerrado', 'cancelado', 'aceptado', 'liberado', 'verificado'].includes(i.state)).forEach(i => { (m[i.assignee || 'Sin asignar'] = m[i.assignee || 'Sin asignar'] || []).push(i) }); return <div className="card">{Object.entries(m).sort((a, b) => b[1].length - a[1].length).map(([k, v]) => { const h = v.reduce((s, i) => s + (i.remaining || i.estimate || 0), 0); return <div key={k} className="wl"><span style={{ width: 180 }}>{k}</span><div className="bar"><div className={h > 40 ? 'over' : ''} style={{ width: Math.min(h / 40 * 100, 100) + '%' }} /></div><span style={{ width: 140, textAlign: 'right', fontSize: 12 }}>{v.length} elem. · {h.toFixed(0)} h {h > 40 && <span className="badge err">sobrecarga</span>}</span></div> })}</div> })()}
       {view === 'deps' && <div className="card">{rows.filter(i => i.depends_on && i.depends_on.length).map(i => <div key={i.id} className="wl"><span style={{ flex: 1 }}><a href="#" onClick={e => { e.preventDefault(); open(i) }}>{i.name}</a> <span className="badge">{STATES.find(s => s[0] === i.state)?.[1]}</span></span><span style={{ color: 'var(--muted)', fontSize: 12 }}>depende de: {i.depends_on.map((d: number) => rows.find(r => r.id === d)?.name || '#' + d).join(', ')}</span></div>)}{rows.filter(i => i.depends_on && i.depends_on.length).length === 0 && <div className="empty">Sin dependencias registradas</div>}</div>}
-      {view === 'deliverable' && (() => { const m: Record<string, any[]> = {}; rows.forEach(i => { (m[i.deliverable || (i.type === 'entregable' ? i.name : 'Sin entregable')] = m[i.deliverable || (i.type === 'entregable' ? i.name : 'Sin entregable')] || []).push(i) }); return <div className="grid cols-2">{Object.entries(m).map(([k, v]) => <div key={k} className="card"><h2>{k}</h2>{v.map(i => <Card key={i.id} i={i} />)}</div>)}</div> })()}
-      {view === 'client' && (() => { const m: Record<string, any[]> = {}; rows.forEach(i => { (m[i.client || i.project || '—'] = m[i.client || i.project || '—'] || []).push(i) }); return <div className="grid cols-2">{Object.entries(m).map(([k, v]) => <div key={k} className="card"><h2>{k}</h2>{v.map(i => <Card key={i.id} i={i} />)}</div>)}</div> })()}
-      {view === 'personal' && <div className="card">{rows.filter(i => user?.member_name && i.assignee === user.member_name).map(i => <Card key={i.id} i={i} />)}{rows.filter(i => user?.member_name && i.assignee === user.member_name).length === 0 && <div className="empty">No tiene elementos asignados{!user?.member_name && ' (su usuario no está vinculado a un integrante)'}</div>}</div>}
+      {view === 'deliverable' && (() => { const m: Record<string, any[]> = {}; rows.forEach(i => { (m[i.deliverable || (i.type === 'entregable' ? i.name : 'Sin entregable')] = m[i.deliverable || (i.type === 'entregable' ? i.name : 'Sin entregable')] || []).push(i) }); return <div className="grid cols-2">{Object.entries(m).map(([k, v]) => <div key={k} className="card"><h2>{k}</h2>{v.map(C)}</div>)}</div> })()}
+      {view === 'client' && (() => { const m: Record<string, any[]> = {}; rows.forEach(i => { (m[i.client || i.project || '—'] = m[i.client || i.project || '—'] || []).push(i) }); return <div className="grid cols-2">{Object.entries(m).map(([k, v]) => <div key={k} className="card"><h2>{k}</h2>{v.map(C)}</div>)}</div> })()}
+      {view === 'personal' && <div className="card">{rows.filter(i => user?.member_name && i.assignee === user.member_name).map(C)}{rows.filter(i => user?.member_name && i.assignee === user.member_name).length === 0 && <div className="empty">No tiene elementos asignados{!user?.member_name && ' (su usuario no está vinculado a un integrante)'}</div>}</div>}
       {peek && <ItemPeek id={peek} onClose={() => setPeek(null)} onChanged={reload} />}
       <p style={{ color: 'var(--mute2)', fontSize: 11 }}>Todas las vistas muestran el mismo elemento (una sola fuente de verdad). {!external && 'Arrastre tarjetas para cambiar de estado o sprint · alta rápida con Enter · atajos: N nuevo, B tablero, M mi trabajo, P proyecto, / buscar.'}</p>
     </div>

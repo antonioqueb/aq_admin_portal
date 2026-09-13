@@ -1,7 +1,7 @@
 {
     "name": "Alphaqueb · Portal de Control Administrativo",
     "summary": "Portal web externo (React) con usuarios propios para la coordinación administrativa y el control operativo de Alphaqueb",
-    "version": "19.0.1.0.0",
+    "version": "19.0.1.0.1",
     "category": "Services/Administration",
     "author": "Alphaqueb",
     "website": "https://alphaqueb.com",

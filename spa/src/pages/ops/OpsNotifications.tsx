@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { fmtDate, ops } from '../../api'
+import { fmtDate, fmtTime, ops } from '../../api'
 import { useApp } from '../../context'
 
 const CAT: Record<string, [string, string]> = { accion_requerida: ['Acción requerida', 'err'], aprobacion: ['Aprobación', 'warn'], bloqueo: ['Bloqueo', 'err'], riesgo: ['Riesgo', 'warn'], incidente: ['Incidente', 'err'], mencion: ['Mención', 'info'], cambio_fecha: ['Cambio de fecha', 'warn'], dependencia_liberada: ['Dependencia liberada', 'ok'], cliente_respondio: ['Cliente respondió', 'info'], entregable_aceptado: ['Entregable aceptado', 'ok'], recordatorio: ['Recordatorio', ''], resumen: ['Resumen', ''] }
@@ -40,7 +40,7 @@ export default function OpsNotifications() {
         {rows.length === 0 && <div className="empty">Sin notificaciones</div>}
         {rows.map((n: any) => <div key={n.id} className={'notif' + (n.read ? '' : ' unread')}>
           <span className={'badge ' + CAT[n.category]?.[1]}>{CAT[n.category]?.[0] || n.category}</span>
-          <div className="t">{n.resource ? <Link to={`/ops/r/${n.resource}/${n.res_id}`} onClick={() => ops.notifUpdate(n.id, { read: true })}>{n.title}</Link> : n.title}{n.body && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{n.body}</div>}<div className="meta" style={{ fontSize: 11, color: 'var(--mute2)' }}>{fmtDate(n.date)} {n.date.slice(11, 16)} · prioridad {n.priority}</div></div>
+          <div className="t">{n.resource ? <Link to={`/ops/r/${n.resource}/${n.res_id}`} onClick={() => ops.notifUpdate(n.id, { read: true })}>{n.title}</Link> : n.title}{n.body && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{n.body}</div>}<div className="meta" style={{ fontSize: 11, color: 'var(--mute2)' }}>{fmtDate(n.date)} {fmtTime(n.date)} · prioridad {n.priority}</div></div>
           <Actions n={n} />
           {n.action_required && !n.done && <button className="btn secondary small" onClick={() => ops.notifUpdate(n.id, { done: true }).then(load)}>Atendida</button>}
           {!n.read && <button className="btn link small" onClick={() => ops.notifUpdate(n.id, { read: true }).then(load)}>leída</button>}

@@ -1,3 +1,4 @@
+from odoo.fields import Domain
 from odoo import api, fields, models, _
 
 
@@ -69,7 +70,7 @@ class Prospect(models.Model):
                "|", "|", ("next_action", "=", False), ("followup_date", "=", False), ("followup_date", "<", today)]
         if (operator == "=" and value) or (operator == "!=" and not value):
             return dom
-        return ["!"] + dom
+        return list(~Domain(dom))
 
     def action_mark_won(self):
         self.write({"stage": "ganado", "result": "ganado", "probability": 100})

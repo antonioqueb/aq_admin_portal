@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Resource, Tab, useApp } from '../context'
 import RecordTable from './RecordTable'
-import { FieldRow } from './Field'
+import { FieldRow, isEmptyValue } from './Field'
 
 /** Pestaña one2many: lista de registros hijos con alta/edición en línea (modal ligero). */
 export default function SubTable({ tab, parentId, parentName }: { tab: Tab; parentId: number; parentName?: string }) {
@@ -10,6 +10,7 @@ export default function SubTable({ tab, parentId, parentName }: { tab: Tab; pare
   const [records, setRecords] = useState<any[]>([])
   const [editing, setEditing] = useState<any | null>(null)
   const [saving, setSaving] = useState(false)
+  const [invalid, setInvalid] = useState<Set<string>>(new Set())
   const load = useCallback(() => {
     if (!res) return
     rapi.list(tab.resource, { domain: [[tab.parent_field, '=', parentId]], limit: 200, order: 'id desc' }).then(r => setRecords(r.records)).catch(e => toast(e.message, 'err'))
@@ -17,11 +18,19 @@ export default function SubTable({ tab, parentId, parentName }: { tab: Tab; pare
   useEffect(() => { load() }, [load])
   if (!res) return <div className="empty">Sin acceso a {tab.label}</div>
   const cols = res.list.filter(c => c !== tab.parent_field)
-  const formFields = res.groups.flatMap(g => g.fields).filter(f => f !== tab.parent_field && res.fields[f] && res.fields[f].type !== 'one2many')
+  const base = res.essential && res.essential.length ? res.essential : res.groups.flatMap(g => g.fields)
+  const formFields = base.filter(f => f !== tab.parent_field && res.fields[f] && res.fields[f].type !== 'one2many')
   const canDirection = app === 'ops' ? true : user?.role === 'direccion'
-  const startNew = () => setEditing({ ...(tab.defaults || {}) })
+  const startNew = () => { setInvalid(new Set()); rapi.defaults(tab.resource).then(r => setEditing({ ...(r.defaults || {}), ...(tab.defaults || {}) })).catch(() => setEditing({ ...(tab.defaults || {}) })) }
   const openRec = async (r: any) => { const full = await rapi.read(tab.resource, r.id); setEditing(full.record) }
   const save = async () => {
+    const missing = formFields.map(f => res.fields[f]).filter(f => f.required && !f.readonly && isEmptyValue(f, editing[f.name]))
+    if (missing.length) {
+      setInvalid(new Set(missing.map(f => f.name)))
+      toast('Faltan campos obligatorios: ' + missing.map(f => f.string).join(', '), 'err')
+      return
+    }
+    setInvalid(new Set())
     setSaving(true)
     try {
       const vals: any = {}
@@ -49,7 +58,7 @@ export default function SubTable({ tab, parentId, parentName }: { tab: Tab; pare
         <div className="card" style={{ marginTop: 12, borderColor: '#714B67' }}>
           <h2>{editing.id ? 'Editar' : 'Nuevo'} · {res.singular}</h2>
           <div className="grid cols-2">
-            {formFields.map(f => <FieldRow key={f} f={res.fields[f]} value={editing[f]} onChange={v => setEditing({ ...editing, [f]: v })} canDirection={canDirection} disabled={!res.can.write && !!editing.id} />)}
+            {formFields.map(f => <FieldRow key={f} f={res.fields[f]} value={editing[f]} onChange={v => setEditing({ ...editing, [f]: v })} canDirection={canDirection} disabled={!res.can.write && !!editing.id} invalid={invalid.has(f)} />)}
           </div>
           <div className="toolbar" style={{ marginTop: 8 }}>
             <button className="btn" disabled={saving || (!!editing.id && !res.can.write)} onClick={save}>Guardar</button>

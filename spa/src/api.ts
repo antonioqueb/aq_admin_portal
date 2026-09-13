@@ -2,8 +2,14 @@ const BASE = (import.meta.env.VITE_API_BASE as string) || ''
 const API = BASE + '/aq_portal/api'
 const TOKEN_KEY = 'aq_portal_token'
 
-export function getToken() { return localStorage.getItem(TOKEN_KEY) }
-export function setToken(t: string | null) { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY) }
+let memToken: string | null = null  // respaldo en memoria si el navegador bloquea localStorage (Safari privado, datos bloqueados)
+export const store = {
+  get: (k: string): string | null => { try { return localStorage.getItem(k) } catch { return null } },
+  set: (k: string, v: string) => { try { localStorage.setItem(k, v) } catch { /* sin almacenamiento */ } },
+  del: (k: string) => { try { localStorage.removeItem(k) } catch { /* sin almacenamiento */ } },
+}
+export function getToken() { return store.get(TOKEN_KEY) ?? memToken }
+export function setToken(t: string | null) { memToken = t; t ? store.set(TOKEN_KEY, t) : store.del(TOKEN_KEY) }
 
 export class ApiError extends Error {
   status: number
@@ -45,6 +51,7 @@ export function makeResourceApi(prefix: string) {
     list: (resource: string, params: Record<string, any> = {}) => call('GET', `${P}/r/${resource}` + qs(params)),
     read: (resource: string, id: number) => call('GET', `${P}/r/${resource}/${id}`),
     create: (resource: string, vals: any) => call('POST', `${P}/r/${resource}`, vals),
+    defaults: (resource: string) => call('GET', `${P}/r/${resource}/defaults`),
     write: (resource: string, id: number, vals: any) => call('PUT', `${P}/r/${resource}/${id}`, vals),
     remove: (resource: string, id: number) => call('DELETE', `${P}/r/${resource}/${id}`),
     action: (resource: string, id: number, action: string) => call('POST', `${P}/r/${resource}/${id}/action/${action}`),
@@ -52,7 +59,7 @@ export function makeResourceApi(prefix: string) {
     note: (resource: string, id: number, body: string, clientVisible?: boolean) => call('POST', `${P}/r/${resource}/${id}/note`, { body, client_visible: clientVisible }),
     attachments: (resource: string, id: number) => call('GET', `${P}/r/${resource}/${id}/attachments`),
     upload: (resource: string, id: number, files: FileList | File[]) => { const fd = new FormData(); Array.from(files).forEach(f => fd.append('file', f)); return call('POST', `${P}/r/${resource}/${id}/attachments`, fd) },
-    nameSearch: (model: string, q: string, limit?: number) => call('GET', `${P}/name_search` + qs({ model, q, limit })),
+    nameSearch: (model: string, q: string, limit?: number, domain?: any[]) => call('GET', `${P}/name_search` + qs({ model, q, limit, domain: domain && domain.length ? domain : undefined })),
     schema: () => call('GET', `${P}/schema`),
     exportUrl: (resource: string, params: Record<string, any> = {}) => `${API}${P}/export/${resource}` + qs({ ...params, token: getToken() }),
   }
@@ -138,6 +145,20 @@ export const api = {
 }
 
 export const fmtMoney = (n: any) => (Number(n) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
-export const fmtDate = (d?: string | null) => d ? new Date(d.length > 10 ? d.replace(' ', 'T') + 'Z' : d + 'T00:00:00').toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' }) : ''
-export const today = () => new Date().toISOString().slice(0, 10)
-export const addDays = (d: string, n: number) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10) }
+const pad = (n: number) => String(n).padStart(2, '0')
+/** 'YYYY-MM-DD' de un Date en hora LOCAL (nunca toISOString, que devuelve la fecha en UTC). */
+export const isoLocal = (x: Date) => `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`
+/** Datetime de Odoo ('YYYY-MM-DD HH:MM:SS', siempre UTC) → Date local */
+export const fromOdoo = (s: string) => new Date(s.replace(' ', 'T') + (s.endsWith('Z') ? '' : 'Z'))
+/** Date local → datetime de Odoo en UTC */
+export const toOdoo = (x: Date) => x.toISOString().slice(0, 19).replace('T', ' ')
+export const fmtDate = (d?: string | null) => d ? (d.length > 10 ? fromOdoo(d) : new Date(d + 'T00:00:00')).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' }) : ''
+/** Hora local (HH:MM) de un datetime de Odoo */
+export const fmtTime = (d?: string | null) => { if (!d || d.length <= 10) return ''; const x = fromOdoo(d); return `${pad(x.getHours())}:${pad(x.getMinutes())}` }
+export const fmtDateTime = (d?: string | null) => d ? `${fmtDate(d)} ${fmtTime(d)}`.trim() : ''
+/** Valor para <input type="datetime-local"> (hora local) desde un datetime de Odoo (UTC) */
+export const toLocalInput = (d?: string | null) => { if (!d) return ''; const x = fromOdoo(d); return `${isoLocal(x)}T${pad(x.getHours())}:${pad(x.getMinutes())}` }
+/** Valor de <input type="datetime-local"> (hora local) → datetime de Odoo (UTC) */
+export const fromLocalInput = (v: string) => v ? toOdoo(new Date(v)) : null
+export const today = () => isoLocal(new Date())
+export const addDays = (d: string, n: number) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return isoLocal(x) }

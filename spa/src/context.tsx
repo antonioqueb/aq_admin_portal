@@ -1,10 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { api, getToken, setToken, makeResourceApi, ResourceApi } from './api'
+import { api, getToken, setToken, makeResourceApi, ResourceApi, ApiError, store } from './api'
 
 export type Role = 'direccion' | 'coordinacion' | 'equipo' | 'consulta'
 export type AppKey = 'admin' | 'ops'
 export interface User { id: number; name: string; login: string; email: string; role: Role; member_id: number | null; member_name: string | null; must_change_password: boolean; notify_alerts: boolean; apps: AppKey[]; ops_role: string | null; organization_id: number | null; organization_name: string | null; department: string | null; is_external: boolean; can_export: boolean; mfa_enabled: boolean; mfa_required: boolean; project_ids: number[] }
-export interface FieldDef { name: string; string: string; type: string; required: boolean; readonly: boolean; help?: string; selection?: [string, string][]; relation?: string; relation_resource?: string | null; direction_only?: boolean }
+export interface FieldDef { name: string; string: string; type: string; required: boolean; readonly: boolean; help?: string; selection?: [string, string][]; relation?: string; relation_resource?: string | null; direction_only?: boolean; domain?: any[] }
 export interface Tab { field: string; resource: string; parent_field: string; label: string; defaults?: Record<string, any> }
 export interface Resource { key: string; model: string; label: string; singular: string; section: string | null; icon?: string; order: number; list: string[]; filters: string[]; groups: { title: string; fields: string[] }[]; tabs: Tab[]; attachments: boolean; chatter: boolean; sensitive: boolean; actions: { name: string; label: string }[]; can: Record<string, boolean>; fields: Record<string, FieldDef>; essential?: string[] }
 export interface Schema { sections: { key: string; label: string }[]; resources: Record<string, Resource>; role: string; is_external?: boolean; ai_available?: boolean; organization?: string; breakglass?: boolean }
@@ -18,9 +18,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [adminSchema, setAdminSchema] = useState<Schema | null>(null)
   const [opsSchema, setOpsSchema] = useState<Schema | null>(null)
-  const [app, setAppState] = useState<AppKey>((localStorage.getItem('aq_app') as AppKey) || 'admin')
+  const [app, setAppState] = useState<AppKey>((store.get('aq_app') as AppKey) || 'admin')
   const [loading, setLoading] = useState(true)
-  const setApp = useCallback((a: AppKey) => { localStorage.setItem('aq_app', a); setAppState(a) }, [])
+  const setApp = useCallback((a: AppKey) => { store.set('aq_app', a); setAppState(a) }, [])
   const [toasts, setToasts] = useState<{ id: number; msg: string; kind: string }[]>([])
 
   const toast = useCallback((msg: string, kind: 'ok' | 'err' | 'info' = 'info') => {
@@ -38,10 +38,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const apps: AppKey[] = u.apps || []
       const [a, o] = await Promise.all([apps.includes('admin') ? makeResourceApi('').schema().catch(() => null) : null, apps.includes('ops') ? makeResourceApi('/ops').schema().catch(() => null) : null])
       setAdminSchema(a); setOpsSchema(o)
-      const stored = (localStorage.getItem('aq_app') as AppKey) || 'admin'
+      const stored = (store.get('aq_app') as AppKey) || 'admin'
       const chosen: AppKey = apps.includes(stored) ? stored : (apps[0] || 'admin')
-      localStorage.setItem('aq_app', chosen); setAppState(chosen)
-    } catch { setUser(null); setAdminSchema(null); setOpsSchema(null); setToken(null) }
+      store.set('aq_app', chosen); setAppState(chosen)
+    } catch (e: any) {
+      // sin red o error del servidor: se conserva la sesión (modo "última información conocida"); solo 401/403 expulsan
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) { setUser(null); setAdminSchema(null); setOpsSchema(null); setToken(null) }
+    }
     finally { setLoading(false) }
   }, [])
 
@@ -56,7 +59,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const r = await api.login(l, p)
     if (r.mfa_required) { throw Object.assign(new Error('MFA'), { mfa: true, token: r.token }) }
     setToken(r.token)
-    if (r.mfa_setup_required) localStorage.setItem('aq_mfa_setup', '1')
+    if (r.mfa_setup_required) store.set('aq_mfa_setup', '1')
     setLoading(true)
     await refresh()
   }

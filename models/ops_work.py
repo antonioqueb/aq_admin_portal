@@ -117,7 +117,13 @@ class OpsRequest(models.Model):
                 self.env["aq.ops.notification"].notify_role(r.project_id, ["pm"], "accion_requerida", _("El cliente solicita un cambio fuera de alcance: %s") % r.name, "requests", r.id)
         return True
 
+    def _require_project(self):
+        for r in self:
+            if not r.project_id:
+                raise UserError(_("Asigne un proyecto a la solicitud «%s» antes de convertirla.") % r.name)
+
     def action_convert_item(self):
+        self._require_project()
         for r in self:
             if r.scope_decision not in ("en_alcance", "soporte", "urgente"):
                 raise UserError(_("Solo se convierte directamente a elemento de trabajo cuando está en alcance, es soporte o es urgente. Si requiere estimación o autorización, conviértala en cambio."))
@@ -128,6 +134,7 @@ class OpsRequest(models.Model):
         return True
 
     def action_convert_change(self):
+        self._require_project()
         for r in self:
             ch = self.env["aq.ops.change"].create({"name": r.name, "description": r.description, "project_id": r.project_id.id, "request_id": r.id,
                                                    "requested_by": r.requester_partner_id.name or r.source})
@@ -135,6 +142,7 @@ class OpsRequest(models.Model):
         return True
 
     def action_convert_incident(self):
+        self._require_project()
         for r in self:
             inc = self.env["aq.ops.incident"].create({"name": r.name, "description": r.description, "project_id": r.project_id.id, "partner_id": r.partner_id.id,
                                                       "request_id": r.id, "severity": "S1" if r.urgency == "critica" else "S2" if r.urgency == "alta" else "S3"})
@@ -300,6 +308,20 @@ class OpsItem(models.Model):
             super(OpsItem, i).write(v)
         if self and self[0].project_id:
             self.mapped("project_id").portal_touch()
+        return True
+
+    def action_done(self):
+        """Marca el elemento como terminado (Cerrado) sin recorrer el flujo intermedio. Las reglas de aceptación siguen aplicando."""
+        for i in self:
+            if i.state in ("cerrado", "cancelado"):
+                continue
+            i.write({"state": "cerrado"})
+        return True
+
+    def action_reopen(self):
+        for i in self:
+            if i.state in ("cerrado", "cancelado"):
+                i.write({"state": "por_hacer", "done_date": False})
         return True
 
     def action_block(self):

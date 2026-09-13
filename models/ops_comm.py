@@ -88,7 +88,11 @@ class OpsNotification(models.Model):
             if not notes:
                 continue
             rows = "".join("<li><b>[%s]</b> %s</li>" % (dict(NOTIF_CATEGORIES)[n.category], n.title) for n in notes)
-            ai = self.env["aq.ops.ai"].digest_summary(["[%s] %s" % (n.category, n.title) for n in notes])
+            try:
+                ai = self.env["aq.ops.ai"].digest_summary(["[%s] %s" % (n.category, n.title) for n in notes])
+            except Exception:  # noqa — sin copiloto el resumen sale igual
+                _logger.warning("Resumen IA del digest no disponible", exc_info=True)
+                ai = ""
             rows = (("<p style='border-left:3px solid #c89eff;padding-left:10px'><b>Copiloto:</b> %s</p>" % ai.replace("\n", "<br/>")) if ai else "") + rows
             html = Brand.wrap(_("Resumen de Operaciones"), "<ul>%s</ul>" % rows, _("Abrir Operaciones"), Brand.portal_url() + "/ops/notifications", subtitle=_("%d notificaciones pendientes") % len(notes))
             self.env["mail.mail"].sudo().create({"subject": _("Alphaops · %d pendientes") % len(notes), "email_to": u.email, "body_html": html}).send()
@@ -125,12 +129,12 @@ class OpsAutomation(models.Model):
         Engine = self.env["aq.ops.engine"]
         for a in self:
             try:
-                if a.action_type == "builtin" and a.code:
-                    n = getattr(Engine, "auto_" + a.code)()
-                    a._log("ok", n)
-                else:
-                    n = Engine.run_generic(a)
-                    a._log("ok", n)
+                with self.env.cr.savepoint():  # un fallo de BD no deja el cursor abortado para las demás automatizaciones
+                    if a.action_type == "builtin" and a.code:
+                        n = getattr(Engine, "auto_" + a.code)()
+                    else:
+                        n = Engine.run_generic(a)
+                a._log("ok", n)
             except Exception as e:  # noqa
                 _logger.exception("Automatización %s", a.name)
                 a._log("error", 0, str(e))
@@ -187,11 +191,12 @@ class OpsEvent(models.Model):
     def process(self):
         for ev in self:
             try:
-                p = json.loads(ev.payload or "{}")
-                if ev.direction == "admin":
-                    ev._project_to_ops(p)
-                else:
-                    ev._project_to_admin(p)
+                with self.env.cr.savepoint():  # el evento en error no rompe la acción del usuario ni el cron
+                    p = json.loads(ev.payload or "{}")
+                    if ev.direction == "admin":
+                        ev._project_to_ops(p)
+                    else:
+                        ev._project_to_admin(p)
                 ev.write({"state": "procesado", "processed_at": fields.Datetime.now()})
             except Exception as e:  # noqa
                 ev.write({"state": "error", "error": str(e)})
@@ -326,7 +331,7 @@ class OpsNotificationChannels(models.Model):
                 payload = {"text": text} if i.kind in ("teams", "slack") else {"message": text, "to": n.user_id.phone if "phone" in n.user_id._fields else ""} if i.kind == "whatsapp" else {"title": n.title, "category": n.category, "priority": n.priority, "user": n.user_id.email, "resource": n.resource, "res_id": n.res_id}
                 try:
                     _rq.post(i.webhook_url, json=payload, timeout=8)
-                    i.write({"last_used": fields.Datetime.now()})
+                    self.env["aq.ops.ai"]._touch_last_used("aq_ops_integration", i.id)
                 except Exception as e:  # noqa
                     _logger.warning("Webhook %s: %s", i.name, e)
 

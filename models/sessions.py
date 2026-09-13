@@ -4,6 +4,7 @@ post-proceso con IA (resumen ejecutivo en plantilla de Google Docs, correo y act
 import json
 import logging
 import re
+import uuid
 from datetime import timedelta
 
 from odoo import api, fields, models, _
@@ -165,6 +166,7 @@ class OpsMeetingSession(models.Model):
     summary_doc_url = fields.Char(string="Resumen en Google Docs", readonly=True)
     summary_sent = fields.Boolean(readonly=True, string="Resumen enviado por correo")
     imported = fields.Boolean(string="Importada del histórico", readonly=True)
+    active = fields.Boolean(default=True, help="Las sesiones duplicadas detectadas por 'Recontar y ordenar' se archivan (active=False).")
     stage_no = fields.Integer(string="Etapa del proyecto", default=1, index=True)
     original_title = fields.Char(string="Título original en Calendar", readonly=True)
     duplicate_of_id = fields.Many2one("aq.ops.meeting", string="Duplicado de", readonly=True)
@@ -228,6 +230,7 @@ class OpsMeetingSession(models.Model):
     def generate_session(self, project, stype, start_dt, duration=None, extra_emails=None, agenda=None, user=None, attendees=None, send_invites=True, context_note=None, share_note=None):
         project.ensure_one()
         acc = self.env["aq.google.sync"]._account()
+        self.env.cr.execute("SELECT id FROM aq_ops_project WHERE id = %s FOR UPDATE", (project.id,))  # consecutivo sin carreras
         n, cn, title = project.next_folio(stype.name, start_dt)
         if attendees is not None:
             emails = set(e.strip().lower() for e in attendees if e and "@" in e)
@@ -248,17 +251,26 @@ class OpsMeetingSession(models.Model):
             desc = (context_note.strip() + ("\n\n" + desc if desc else ""))
         body = {"summary": title, "description": desc + "\n\n— Generado por Alphaops", "start": {"dateTime": start_dt.strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "America/Mexico_City"},
                 "end": {"dateTime": end_dt.strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "America/Mexico_City"},
-                "attendees": [{"email": e} for e in sorted(emails)], "conferenceData": {"createRequest": {"requestId": "aqops-%s-%s" % (project.id, fields.Datetime.now().strftime("%H%M%S")), "conferenceSolutionKey": {"type": "hangoutsMeet"}}},
+                "attendees": [{"email": e} for e in sorted(emails)], "conferenceData": {"createRequest": {"requestId": "aqops-%s-%s" % (project.id, uuid.uuid4().hex[:16]), "conferenceSolutionKey": {"type": "hangoutsMeet"}}},
                 "guestsCanModify": False, "reminders": {"useDefault": True}}
         ev = acc._call("POST", "https://www.googleapis.com/calendar/v3/calendars/%s/events" % (acc.calendar_id or "primary"), params={"conferenceDataVersion": 1, "sendUpdates": "all" if send_invites else "none"}, json=body)
         meet = ev.get("hangoutLink") or next((p.get("uri") for p in (ev.get("conferenceData", {}).get("entryPoints") or []) if p.get("entryPointType") == "video"), "")
         invited_members = members.filtered(lambda x: x.email and x.email.lower() in emails)
         invited_clients = project.client_contact_ids.filtered(lambda x: x.email and x.email.lower() in emails)
-        m = self.create({"name": title, "project_id": project.id, "date": start_dt, "meeting_type": stype.meeting_type, "session_type_id": stype.id, "folio": n, "client_folio": cn or False,
-                         "stage_no": project.session_stage or 1,
-                         "member_ids": [(6, 0, invited_members.ids)], "client_partner_ids": [(6, 0, invited_clients.ids)],
-                         "agenda": desc or stype.agenda_template, "location": meet, "google_event_id": ev.get("id"), "meet_code": (ev.get("conferenceData", {}).get("conferenceId") or ""),
-                         "client_visible": stype.client_visible})
+        from .google import local_to_utc
+        try:
+            m = self.create({"name": title, "project_id": project.id, "date": local_to_utc(start_dt), "meeting_type": stype.meeting_type, "session_type_id": stype.id, "folio": n, "client_folio": cn or False,
+                             "stage_no": project.session_stage or 1,
+                             "member_ids": [(6, 0, invited_members.ids)], "client_partner_ids": [(6, 0, invited_clients.ids)],
+                             "agenda": desc or stype.agenda_template, "location": meet, "google_event_id": ev.get("id"), "meet_code": (ev.get("conferenceData", {}).get("conferenceId") or ""),
+                             "client_visible": stype.client_visible})
+        except Exception:
+            # el evento (e invitaciones) ya salió: se cancela para no dejar un evento huérfano y duplicar al reintentar
+            try:
+                acc._call("DELETE", "https://www.googleapis.com/calendar/v3/calendars/%s/events/%s" % (acc.calendar_id or "primary", ev.get("id")), params={"sendUpdates": "all" if send_invites else "none"})
+            except Exception:  # noqa
+                _logger.exception("No se pudo cancelar el evento %s tras fallar el alta de la sesión", ev.get("id"))
+            raise
         upd = {}
         if n > (project.session_seq or 0):
             upd["session_seq"] = n
@@ -381,7 +393,7 @@ class OpsMeetingSession(models.Model):
         m2 = re.search(r"(PO-\d{4,6})-([A-ZÁÉÍÓÚ]+)-SESI[ÓO]N\s*#\s*(\d+)", up)
         if m2:
             return {"folio": 0, "client_folio": int(m2.group(3)), "prefix": m2.group(2), "po": m2.group(1), "scheme": "cliente"}
-        m1 = re.search(r"SESI[ÓO]N\s*(?:DE\s+\w+\s+)?#\s*(\d+)\s*[–\-—]*\s*([A-ZÁÉÍÓÚ]+)?", up)
+        m1 = re.search(r"SESI[ÓO]N\s*(?:DE\s+\w+\s+)?#\s*(\d+)(?:\s+ETAPA\s*\d+)?\s*[–\-—]*\s*(?!ETAPA\b)([A-ZÁÉÍÓÚ]+)?", up)
         if m1:
             return {"folio": int(m1.group(1)), "client_folio": 0, "prefix": (m1.group(2) or "").strip(), "po": None, "scheme": "interno"}
         return {"folio": 0, "client_folio": 0, "prefix": None, "po": None, "scheme": None}

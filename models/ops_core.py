@@ -415,7 +415,7 @@ class OpsProjectForecast(models.Model):
     velocity_week = fields.Float(compute="_compute_forecast", store=True, string="Velocidad (elementos cerrados / semana)")
     forecast_end_by_velocity = fields.Date(compute="_compute_forecast", store=True, string="Fin pronosticado por velocidad")
 
-    @api.depends("timesheet_ids.hours", "timesheet_ids.date", "hours_authorized", "item_ids.state", "item_ids.done_date")
+    @api.depends("timesheet_ids.hours", "timesheet_ids.date", "timesheet_ids.state", "hours_authorized", "item_ids.state", "item_ids.done_date")
     def _compute_forecast(self):
         today = fields.Date.today()
         for p in self:

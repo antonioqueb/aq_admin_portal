@@ -16,7 +16,7 @@ class ChangeRequest(models.Model):
     _order = "request_date desc"
 
     name = fields.Char(string="Solicitud", required=True, tracking=True)
-    project_id = fields.Many2one("aq.portal.project", required=True, string="Proyecto")
+    project_id = fields.Many2one("aq.portal.project", required=True, string="Proyecto", ondelete="cascade")
     partner_id = fields.Many2one(related="project_id.partner_id", store=True)
     requested_by = fields.Char(string="Solicitado por (cliente)")
     request_date = fields.Date(string="Fecha de solicitud", default=fields.Date.today)

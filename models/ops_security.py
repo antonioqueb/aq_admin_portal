@@ -132,12 +132,26 @@ class PortalUserOps(models.Model):
         code = (code or "").strip().replace(" ", "")
         return any(hmac.compare_digest(_totp(secret, window=w), code) for w in (-1, 0, 1))
 
-    def mfa_verify(self, code):
+    mfa_last_code = fields.Char(groups="base.group_system", help="Último código aceptado: no se admite dos veces dentro de la ventana.")
+
+    def mfa_verify(self, code, session=None):
         self.ensure_one()
         if not self.mfa_enabled:
             return True
-        if not self._mfa_check(self.sudo().mfa_secret, code):
+        me = self.sudo()
+        code = (code or "").strip().replace(" ", "")
+        now = fields.Datetime.now()
+        if me.locked_until and me.locked_until > now:
+            raise AccessDenied(_("Cuenta bloqueada temporalmente por intentos fallidos. Intente más tarde."))
+        if not code or code == (me.mfa_last_code or "") or not self._mfa_check(me.mfa_secret, code):
+            if session is not None:
+                session.sudo().write({"mfa_failed": (session.mfa_failed or 0) + 1})
+                if session.mfa_failed >= 6:
+                    session.sudo().write({"active": False})
+                    me.write({"locked_until": now + timedelta(minutes=15)})
+                    raise AccessDenied(_("Demasiados códigos incorrectos: la sesión se cerró y la cuenta queda bloqueada 15 minutos."))
             raise AccessDenied(_("Código MFA incorrecto."))
+        me.write({"mfa_last_code": code})
         return True
 
 
@@ -147,7 +161,7 @@ class BreakGlass(models.Model):
     _description = "Alphaops: acceso extraordinario (break glass)"
     _order = "create_date desc"
 
-    user_id = fields.Many2one("aq.portal.user", required=True, string="Usuario")
+    user_id = fields.Many2one("aq.portal.user", required=True, string="Usuario", ondelete="cascade")
     justification = fields.Text(required=True, string="Justificación")
     granted_role = fields.Selection(OPS_ROLES, required=True, string="Perfil temporal", default="ops_director")
     project_id = fields.Many2one("aq.ops.project", string="Proyecto (opcional)")

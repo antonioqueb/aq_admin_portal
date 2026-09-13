@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { fmtDate } from '../api'
+import { fmtDate, fmtTime } from '../api'
 import { useApp } from '../context'
 
 const ACTION: Record<string, string> = { create: 'Creó', write: 'Modificó', unlink: 'Archivó/eliminó', action: 'Ejecutó', upload: 'Subió archivo', denied: 'Acceso denegado' }
@@ -23,13 +23,13 @@ export default function Timeline({ resource, id }: { resource: string; id: numbe
       <ul className="timeline">
         {data.messages.map(m => (
           <li key={'m' + m.id}>
-            <div className="meta">{fmtDate(m.date)} {m.date.slice(11, 16)} · {m.author}</div>
+            <div className="meta">{fmtDate(m.date)} {fmtTime(m.date)} · {m.author}</div>
             {m.body && <div dangerouslySetInnerHTML={{ __html: m.body }} />}
             {m.tracking.map((t: any, i: number) => <div className="chg" key={i}>{t.field}: <s>{String(t.old || '—')}</s> → <b>{String(t.new || '—')}</b></div>)}
           </li>
         ))}
         {data.audit.map(a => (
-          <li key={'a' + a.id}><div className="meta">{fmtDate(a.date)} {a.date.slice(11, 16)} · {a.user || 'sistema'} · {ACTION[a.action] || a.action}</div><div>{a.summary}</div></li>
+          <li key={'a' + a.id}><div className="meta">{fmtDate(a.date)} {fmtTime(a.date)} · {a.user || 'sistema'} · {ACTION[a.action] || a.action}</div><div>{a.summary}</div></li>
         ))}
         {data.messages.length + data.audit.length === 0 && <li className="empty">Sin historial</li>}
       </ul>

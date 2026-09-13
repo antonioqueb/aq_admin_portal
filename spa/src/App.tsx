@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useApp } from './context'
 import Layout from './components/Layout'
@@ -28,9 +29,11 @@ import GoogleIntegration from './pages/GoogleIntegration'
 
 function AppGate({ need, children }: { need: 'admin' | 'ops'; children: JSX.Element }) {
   const { user, app, setApp } = useApp()
+  const allowed = !!user && user.apps.includes(need)
+  useEffect(() => { if (allowed && app !== need) setApp(need) }, [allowed, app, need, setApp])
   if (!user) return null
-  if (!user.apps.includes(need)) return <Navigate to={user.apps.includes('ops') ? '/ops' : '/'} />
-  if (app !== need) { setApp(need); return null }
+  if (!allowed) return <Navigate to={user.apps.includes('ops') ? '/ops' : '/'} />
+  if (app !== need) return null
   return children
 }
 

@@ -92,6 +92,7 @@ Autenticación `Authorization: Bearer <token>`.
 * `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/forgot`, `POST /auth/reset`, `POST /auth/change-password`
 * `GET /schema` — recursos, campos, grupos, pestañas, acciones y permisos del rol actual
 * `GET|POST /r/<recurso>`, `GET|PUT|DELETE /r/<recurso>/<id>`, `POST /r/<recurso>/<id>/action/<accion>`
+* `GET /r/<recurso>/defaults` — valores por defecto para el alta (los mismos que aplica el servidor). `POST /r/<recurso>` responde 400 «Faltan campos obligatorios: …» si un campo obligatorio queda vacío. Mismos endpoints bajo `/ops/…` para Operaciones.
 * `GET /r/<recurso>/<id>/messages`, `POST /r/<recurso>/<id>/note`, `GET|POST /r/<recurso>/<id>/attachments`
 * `GET /dashboard`, `GET /calendar`, `GET /routines/today`, `POST /routines/<id>/toggle`, `POST /reports/generate`
 * `GET /alerts`, `POST /alerts/<id>/dismiss`, `POST /alerts/recompute`

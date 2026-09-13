@@ -55,7 +55,7 @@ class PortalUser(models.Model):
     @api.constrains("login")
     def _check_login_unique(self):
         for rec in self:
-            if self.search_count([("login", "=ilike", rec.login), ("id", "!=", rec.id)]):
+            if self.search_count([("login", "=", (rec.login or "").strip().lower()), ("id", "!=", rec.id)]):
                 raise ValidationError(_("El login '%s' ya está en uso.") % rec.login)
 
     @api.model_create_multi
@@ -156,8 +156,10 @@ class PortalUser(models.Model):
         # extender sesión deslizante cada 10 minutos
         if (fields.Datetime.now() - (session.last_seen or session.create_date)).total_seconds() > 600:
             ttl_hours = int(self.env["ir.config_parameter"].sudo().get_param("aq_admin_portal.session_hours", "12"))
-            session.write({"last_seen": fields.Datetime.now(),
-                           "expires": fields.Datetime.now() + timedelta(hours=ttl_hours)})
+            # varias peticiones en paralelo pueden intentar extender la misma sesión: solo una lo hace, sin esperar bloqueos
+            self.env.cr.execute("SELECT id FROM aq_portal_session WHERE id = %s FOR UPDATE SKIP LOCKED", (session.id,))
+            if self.env.cr.fetchone():
+                session.write({"last_seen": fields.Datetime.now(), "expires": fields.Datetime.now() + timedelta(hours=ttl_hours)})
         return session.user_id
 
     @api.model
@@ -249,7 +251,8 @@ class PortalSession(models.Model):
     user_agent = fields.Char()
     active = fields.Boolean(default=True)
     mfa_pending = fields.Boolean(string="Pendiente de MFA")
+    mfa_failed = fields.Integer(string="Intentos MFA fallidos", default=0)
 
     @api.model
     def _gc_sessions(self):
-        self.sudo().search([("expires", "<", fields.Datetime.now() - timedelta(days=7))]).unlink()
+        self.sudo().with_context(active_test=False).search([("expires", "<", fields.Datetime.now() - timedelta(days=7))]).unlink()

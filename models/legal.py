@@ -1,3 +1,4 @@
+from odoo.fields import Domain
 from odoo import api, fields, models, _
 
 LEGAL_CATEGORIES = [
@@ -91,7 +92,7 @@ class LegalItem(models.Model):
     employee_id = fields.Many2one("aq.portal.employee", string="Contraparte (integrante)")
     vendor_id = fields.Many2one("aq.portal.vendor", string="Proveedor (padrón)")
     project_id = fields.Many2one("aq.portal.project", string="Proyecto")
-    exists = fields.Boolean(string="Existe el documento", tracking=True)
+    document_exists = fields.Boolean(string="Existe el documento", tracking=True)
     is_current = fields.Boolean(string="Vigente", tracking=True)
     is_missing = fields.Boolean(compute="_compute_missing", store=True, string="Hace falta")
     is_signed = fields.Boolean(string="Firmado")
@@ -115,10 +116,10 @@ class LegalItem(models.Model):
     findings = fields.Text(string="Hallazgos / estado real")
     action_plan = fields.Text(string="Acción requerida")
 
-    @api.depends("exists")
+    @api.depends("document_exists")
     def _compute_missing(self):
         for r in self:
-            r.is_missing = not r.exists
+            r.is_missing = not r.document_exists
 
     def _compute_expiry(self):
         today = fields.Date.today()
@@ -130,7 +131,7 @@ class LegalItem(models.Model):
         dom = [("date_end", "<", fields.Date.today())]
         if (operator == "=" and value) or (operator == "!=" and not value):
             return dom
-        return ["!"] + dom
+        return list(~Domain(dom))
 
 
 class Template(models.Model):

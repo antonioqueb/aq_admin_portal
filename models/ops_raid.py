@@ -76,7 +76,7 @@ class OpsIncident(models.Model):
     sla_resolution_hours = fields.Float(compute="_compute_sla", store=True)
     sla_response_met = fields.Boolean(compute="_compute_sla", store=True, string="SLA de respuesta cumplido")
     sla_resolution_met = fields.Boolean(compute="_compute_sla", store=True, string="SLA de resolución cumplido")
-    sla_breached = fields.Boolean(compute="_compute_sla", store=True, string="SLA incumplido")
+    sla_breached = fields.Boolean(compute="_compute_sla_breached", string="SLA incumplido")
     containment = fields.Text(string="Contención")
     diagnosis = fields.Text(string="Diagnóstico")
     correction = fields.Text(string="Corrección")
@@ -95,15 +95,23 @@ class OpsIncident(models.Model):
 
     @api.depends("severity", "reported_at", "responded_at", "resolved_at", "step")
     def _compute_sla(self):
-        now = fields.Datetime.now()
         for i in self:
             resp, res = SLA.get(i.severity, (24, 160))
             i.sla_response_hours, i.sla_resolution_hours = resp, res
-            r_at = i.responded_at or (now if i.step == "reportado" else now)
-            i.sla_response_met = bool(i.responded_at and (i.responded_at - i.reported_at).total_seconds() / 3600.0 <= resp)
-            i.sla_resolution_met = bool(i.resolved_at and (i.resolved_at - i.reported_at).total_seconds() / 3600.0 <= res)
-            elapsed = ((i.resolved_at or now) - i.reported_at).total_seconds() / 3600.0 if i.reported_at else 0
-            i.sla_breached = (not i.responded_at and i.reported_at and (now - i.reported_at).total_seconds() / 3600.0 > resp) or (not i.resolved_at and elapsed > res)
+            i.sla_response_met = bool(i.responded_at and i.reported_at and (i.responded_at - i.reported_at).total_seconds() / 3600.0 <= resp)
+            i.sla_resolution_met = bool(i.resolved_at and i.reported_at and (i.resolved_at - i.reported_at).total_seconds() / 3600.0 <= res)
+
+    @api.depends("severity", "reported_at", "responded_at", "resolved_at")
+    def _compute_sla_breached(self):
+        """Depende de la hora actual: se calcula al leer (no se almacena) para que un incidente sin cambios sí pase a incumplido."""
+        now = fields.Datetime.now()
+        for i in self:
+            resp, res = SLA.get(i.severity, (24, 160))
+            if not i.reported_at:
+                i.sla_breached = False
+                continue
+            elapsed = ((i.resolved_at or now) - i.reported_at).total_seconds() / 3600.0
+            i.sla_breached = bool((not i.responded_at and (now - i.reported_at).total_seconds() / 3600.0 > resp) or (not i.resolved_at and elapsed > res))
 
     def action_advance(self):
         order = [s[0] for s in INCIDENT_STEPS]

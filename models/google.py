@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import timedelta
 from email.utils import parseaddr
 
@@ -16,6 +17,29 @@ from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
+
+DEFAULT_TZ = "America/Mexico_City"
+
+
+def _google_dt_to_utc(value, tz_name=None):
+    """'2026-09-15T09:30:00-06:00' / '2026-09-15T09:30:00' (+timeZone) / '2026-09-15T09:00:00' → datetime naive en UTC (como guarda Odoo)."""
+    import pytz
+    raw = (value or "")[:25]
+    try:
+        dt = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return fields.Datetime.to_datetime(raw[:19].replace("T", " "))
+    if dt.tzinfo is None:
+        dt = pytz.timezone(tz_name or DEFAULT_TZ).localize(dt)
+    return dt.astimezone(pytz.utc).replace(tzinfo=None)
+
+
+def local_to_utc(dt, tz_name=DEFAULT_TZ):
+    """Datetime naive en hora local (lo que captura el usuario) → naive en UTC para campos Datetime de Odoo."""
+    import pytz
+    if not dt:
+        return dt
+    return pytz.timezone(tz_name).localize(dt).astimezone(pytz.utc).replace(tzinfo=None)
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/drive",
           "https://www.googleapis.com/auth/documents", "https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/meetings.space.readonly",
           "https://www.googleapis.com/auth/userinfo.email", "openid"]
@@ -135,8 +159,12 @@ class GoogleAccount(models.Model):
         if r.status_code != 200:
             raise UserError(_("Google rechazó el código: %s") % r.text[:300])
         t = r.json()
-        info = requests.get("https://www.googleapis.com/oauth2/v3/userinfo", headers={"Authorization": "Bearer " + t["access_token"]}, timeout=20).json()
-        email = info.get("email")
+        ri = requests.get("https://www.googleapis.com/oauth2/v3/userinfo", headers={"Authorization": "Bearer " + t["access_token"]}, timeout=20)
+        if ri.status_code != 200:
+            raise UserError(_("No se pudo leer el correo de la cuenta de Google: %s") % ri.text[:200])
+        email = (ri.json() or {}).get("email")
+        if not email:
+            raise UserError(_("Google no devolvió el correo de la cuenta; revise los scopes (userinfo.email)."))
         acc = self.sudo().search([("email", "=", email)], limit=1) or self.sudo().search([("state", "=", "pendiente")], limit=1) or self.sudo().create({"name": email or "Cuenta Google"})
         vals = {"email": email, "access_token": t["access_token"], "token_expiry": fields.Datetime.now() + timedelta(seconds=int(t.get("expires_in", 3600)) - 60),
                 "scopes": t.get("scope"), "connected_by_id": portal_user.id if portal_user else False, "connected_at": fields.Datetime.now(), "state": "conectada", "last_error": False, "active": True}
@@ -161,9 +189,21 @@ class GoogleAccount(models.Model):
         me.write({"access_token": t["access_token"], "token_expiry": fields.Datetime.now() + timedelta(seconds=int(t.get("expires_in", 3600)) - 60), "state": "conectada", "last_error": False})
         return t["access_token"]
 
-    def _call(self, method, url, **kw):
-        headers = kw.pop("headers", {}); headers["Authorization"] = "Bearer " + self._token()
-        r = requests.request(method, url, headers=headers, timeout=kw.pop("timeout", 60), **kw)
+    def _call(self, method, url, _retried=False, **kw):
+        headers = dict(kw.pop("headers", {}) or {}); headers["Authorization"] = "Bearer " + self._token()
+        timeout = kw.pop("timeout", 60)
+        r = requests.request(method, url, headers=headers, timeout=timeout, **kw)
+        if r.status_code == 401 and not _retried:
+            # token revocado antes de su expiración local: se fuerza la renovación y se reintenta una vez
+            self.sudo().write({"access_token": False, "token_expiry": False})
+            return self._call(method, url, _retried=True, headers=headers, timeout=timeout, **kw)
+        if r.status_code in (429, 500, 502, 503, 504) and not _retried:
+            try:
+                wait = min(int(r.headers.get("Retry-After", 2)), 15)
+            except ValueError:
+                wait = 2
+            time.sleep(wait)
+            return self._call(method, url, _retried=True, headers=headers, timeout=timeout, **kw)
         if r.status_code >= 400:
             raise UserError(_("Google API %s %s → %s: %s") % (method, url.split("?")[0][-60:], r.status_code, r.text[:300]))
         return r.json() if r.content and "json" in r.headers.get("Content-Type", "") else r.text
@@ -457,6 +497,12 @@ class GoogleMessage(models.Model):
         emails = re.findall(r"[\w.+-]+@([\w-]+\.[\w.-]+)", (self.sender or "") + " " + (self.recipients or ""))
         return sorted({d.lower().strip(".") for d in emails if not d.lower().endswith(("alphaqueb.com", "google.com", "gmail.com"))})
 
+    def _external_emails(self):
+        """Direcciones completas presentes en De/Para/CC que no son de Alphaqueb (incluye correos personales como gmail)."""
+        self.ensure_one()
+        emails = re.findall(r"[\w.+-]+@[\w-]+\.[\w.-]+", (self.sender or "") + " " + (self.recipients or ""))
+        return sorted({e.lower().strip(".") for e in emails if not e.lower().endswith("@alphaqueb.com")})
+
     def _detect(self):
         """Vinculación determinista. El proyecto se asigna únicamente si el dominio del remitente está en
         'Dominios de correo del cliente' de un proyecto activo; nada de adivinar por palabras del texto.
@@ -465,7 +511,10 @@ class GoogleMessage(models.Model):
         Project = self.env["aq.ops.project"].sudo()
         for m in self:
             domains = m._external_domains()
-            proj = Project._by_email_domain(domains) if domains else Project
+            # 1) correo exacto configurado en el proyecto (prioridad); 2) dominio del cliente
+            proj = Project._by_email_address(m._external_emails())
+            if not proj and domains:
+                proj = Project._by_email_domain(domains)
             partner = proj.partner_id if proj else Partner
             if not partner:
                 for d in sorted(domains):
@@ -804,56 +853,69 @@ class GoogleSync(models.AbstractModel):
                 break
             if Msg.search_count([("external_id", "=", ref["id"]), ("source", "=", "gmail")]):
                 continue
-            full = acc.gmail_get(ref["id"])
-            headers = {h["name"].lower(): h["value"] for h in full.get("payload", {}).get("headers", [])}
-            if self._is_portal_mail(acc, headers, full.get("labelIds", [])):
-                if label_done:  # se marca como procesado para no volver a leerlo, pero no entra a la bandeja
-                    acc.gmail_add_label(ref["id"], label_done)
-                continue
-            body = acc.gmail_text(full.get("payload", {}))
-            parts = acc.gmail_attachment_parts(full.get("payload", {}))
-            to_all = ", ".join(x for x in (headers.get("to", ""), headers.get("cc", "")) if x)
-            msg = {"from": headers.get("from", ""), "to": to_all, "subject": headers.get("subject", "(sin asunto)"), "body": body, "labels": full.get("labelIds", [])}
-            mdate = datetime.datetime.utcfromtimestamp(int(full["internalDate"]) // 1000) if full.get("internalDate") else fields.Datetime.now()
-            rec = Msg.create({"account_id": acc.id, "source": "gmail", "external_id": ref["id"], "thread_id": full.get("threadId"), "subject": msg["subject"][:250], "sender": msg["from"][:250],
-                              "recipients": msg["to"][:500], "date": mdate,
-                              "snippet": (full.get("snippet") or "")[:300], "body": body[:20000], "labels": ",".join(full.get("labelIds", [])),
-                              "attachment_names": ", ".join(p["filename"] for p in parts)[:500],
-                              "link": "https://mail.google.com/mail/u/0/#all/%s" % full.get("threadId")})
-            rec._detect()
-            # Compuerta de dominios: lo que no viene de un proyecto (ni es notas de Meet ni regla por remitente)
-            # se ignora aquí mismo, sin descargar adjuntos ni gastar tokens del copiloto.
-            reason = self._domain_gate(rec, msg)
-            if reason:
-                self._reject(rec, reason)
+            try:
+                with self.env.cr.savepoint():
+                    self._sync_gmail_message(acc, ref, label_done)
+            except Exception:  # noqa — un correo defectuoso se etiqueta y se salta; no detiene el lote
+                _logger.exception("Gmail: no se pudo procesar el mensaje %s", ref.get("id"))
                 if label_done:
-                    acc.gmail_add_label(ref["id"], label_done)
-                n += 1
-                self.env.cr.commit()
-                continue
-            # adjuntos: se guardan en el mensaje y su texto se extrae para el análisis
-            texts = []
-            for p in parts[:10]:
-                if (p.get("size") or 0) > 15 * 1024 * 1024:
-                    continue
-                try:
-                    raw = acc.gmail_attachment(ref["id"], p["id"])
-                    self.env["ir.attachment"].sudo().create({"name": p["filename"], "raw": raw, "mimetype": p.get("mime"), "res_model": rec._name, "res_id": rec.id})
-                    t = _extract_attachment_text(p["filename"], raw)
-                    if t and t.strip():
-                        texts.append("· %s:\n%s" % (p["filename"], t.strip()[:8000]))
-                except Exception as e:  # noqa
-                    _logger.info("adjunto %s: %s", p.get("filename"), e)
-            if texts:
-                rec.write({"attachments_text": "\n\n".join(texts)[:60000]})
-                msg["body"] = (msg["body"] or "") + "\n\n[Contenido de adjuntos]\n" + "\n\n".join(texts)[:6000]
-            self.route(rec, msg)
-            if label_done:
-                acc.gmail_add_label(ref["id"], label_done)
+                    try:
+                        acc.gmail_add_label(ref["id"], label_done)
+                    except Exception:  # noqa
+                        pass
             n += 1
             self.env.cr.commit()
         acc.write({"last_gmail_sync": fields.Datetime.now()})
         return n
+
+    @api.model
+    def _sync_gmail_message(self, acc, ref, label_done):
+        """Procesa un solo correo: alta en la bandeja, compuerta de dominios, adjuntos y enrutamiento."""
+        Msg = self.env["aq.google.message"].sudo()
+        full = acc.gmail_get(ref["id"])
+        headers = {(h.get("name") or "").lower(): h.get("value") or "" for h in full.get("payload", {}).get("headers", [])}
+        if self._is_portal_mail(acc, headers, full.get("labelIds", [])):
+            if label_done:  # se marca como procesado para no volver a leerlo, pero no entra a la bandeja
+                acc.gmail_add_label(ref["id"], label_done)
+            return
+        body = acc.gmail_text(full.get("payload", {}))
+        parts = acc.gmail_attachment_parts(full.get("payload", {}))
+        to_all = ", ".join(x for x in (headers.get("to", ""), headers.get("cc", "")) if x)
+        msg = {"from": headers.get("from", ""), "to": to_all, "subject": headers.get("subject", "(sin asunto)"), "body": body, "labels": full.get("labelIds", [])}
+        mdate = datetime.datetime.fromtimestamp(int(full["internalDate"]) // 1000, datetime.timezone.utc).replace(tzinfo=None) if full.get("internalDate") else fields.Datetime.now()
+        rec = Msg.create({"account_id": acc.id, "source": "gmail", "external_id": ref["id"], "thread_id": full.get("threadId"), "subject": msg["subject"][:250], "sender": msg["from"][:250],
+                          "recipients": msg["to"][:500], "date": mdate,
+                          "snippet": (full.get("snippet") or "")[:300], "body": body[:20000], "labels": ",".join(full.get("labelIds", [])),
+                          "attachment_names": ", ".join(p["filename"] for p in parts)[:500],
+                          "link": "https://mail.google.com/mail/u/0/#all/%s" % full.get("threadId")})
+        rec._detect()
+        # Compuerta de dominios: lo que no viene de un proyecto (ni es notas de Meet ni regla por remitente)
+        # se ignora aquí mismo, sin descargar adjuntos ni gastar tokens del copiloto.
+        reason = self._domain_gate(rec, msg)
+        if reason:
+            self._reject(rec, reason)
+            if label_done:
+                acc.gmail_add_label(ref["id"], label_done)
+            return
+        # adjuntos: se guardan en el mensaje y su texto se extrae para el análisis
+        texts = []
+        for p in parts[:10]:
+            if (p.get("size") or 0) > 15 * 1024 * 1024:
+                continue
+            try:
+                raw = acc.gmail_attachment(ref["id"], p["id"])
+                self.env["ir.attachment"].sudo().create({"name": p["filename"], "raw": raw, "mimetype": p.get("mime"), "res_model": rec._name, "res_id": rec.id})
+                t = _extract_attachment_text(p["filename"], raw)
+                if t and t.strip():
+                    texts.append("· %s:\n%s" % (p["filename"], t.strip()[:8000]))
+            except Exception as e:  # noqa
+                _logger.info("adjunto %s: %s", p.get("filename"), e)
+        if texts:
+            rec.write({"attachments_text": "\n\n".join(texts)[:60000]})
+            msg["body"] = (msg["body"] or "") + "\n\n[Contenido de adjuntos]\n" + "\n\n".join(texts)[:6000]
+        self.route(rec, msg)
+        if label_done:
+            acc.gmail_add_label(ref["id"], label_done)
 
     @api.model
     def _is_portal_mail(self, acc, headers, labels):
@@ -898,7 +960,10 @@ class GoogleSync(models.AbstractModel):
         doms = rec._external_domains()
         if doms:
             return _("Dominio(s) %s sin proyecto vinculado: no se analiza ni se envía al copiloto. Agregue el dominio en "
-                     "'Dominios de correo del cliente' del proyecto (o una regla por remitente) y use 'Reanalizar'.") % ", ".join(doms)
+                     "'Dominios de correo del cliente' o la dirección en 'Correos exactos del cliente' del proyecto y use 'Reanalizar'.") % ", ".join(doms)
+        ext = [e for e in rec._external_emails() if not e.endswith(("@google.com",))]
+        if ext:
+            return _("Remitente(s) %s sin proyecto vinculado: agregue la dirección en 'Correos exactos del cliente' del proyecto y use 'Reanalizar'.") % ", ".join(ext[:3])
         return _("Correo sin dominio externo (interno o automático) y sin regla por remitente: no se analiza.")
 
     @api.model
@@ -990,6 +1055,7 @@ class GoogleSync(models.AbstractModel):
             if ev.get("status") == "cancelled" or not ev.get("id"):
                 continue
             start = (ev.get("start") or {}).get("dateTime") or ((ev.get("start") or {}).get("date") + "T09:00:00")
+            start_utc = _google_dt_to_utc(start, (ev.get("start") or {}).get("timeZone"))
             emails = [a.get("email", "").lower() for a in ev.get("attendees", [])]
             external = [e for e in emails if e and not e.endswith(("alphaqueb.com", "google.com", "calendar.google.com"))]
             partner_ids = self.env["res.partner"].sudo().search([("email", "in", external)]) if external else self.env["res.partner"].sudo()
@@ -1001,23 +1067,27 @@ class GoogleSync(models.AbstractModel):
             members = self.env["aq.portal.member"].sudo().search([("email", "in", [e for e in emails if e.endswith("alphaqueb.com")])])
             info = Meeting.parse_folio(ev.get("summary") or "")
             folio, prefix, po, client_folio = info["folio"], info["prefix"], info["po"], info["client_folio"]
+            stage_no = self.env["aq.ops.session.normalizer"].read_stage(ev.get("summary")) or project.session_stage or 1
             vals = {"name": (ev.get("summary") or _("Reunión"))[:200], "project_id": project.id, "folio": folio or False, "client_folio": client_folio or False,
-                    "date": fields.Datetime.to_datetime(start[:19].replace("T", " ")) if "T" in start else start,
+                    "date": start_utc, "stage_no": stage_no,
                     "member_ids": [(6, 0, members.ids)], "client_partner_ids": [(6, 0, partner_ids.ids)], "location": ev.get("hangoutLink") or ev.get("location"),
                     "agenda": (ev.get("description") or "")[:4000], "google_event_id": ev["id"], "meet_code": ((ev.get("conferenceData") or {}).get("conferenceId") or "")}
             m = Meeting.search([("google_event_id", "=", ev["id"])], limit=1)
             if m:
-                keep = {k: v for k, v in vals.items() if k in ("name", "date", "location", "agenda", "client_partner_ids", "member_ids", "meet_code")}
+                # lo que decide Calendar (fecha, liga) se refresca siempre; título, agenda y participantes solo mientras la sesión no tenga folio asignado
+                keep = {k: v for k, v in vals.items() if k in ("date", "location", "meet_code")}
+                if not m.folio:
+                    keep.update({k: v for k, v in vals.items() if k in ("name", "agenda", "client_partner_ids", "member_ids")})
                 if folio and not m.folio:
                     keep["folio"] = folio
                 if client_folio and not m.client_folio:
                     keep["client_folio"] = client_folio
                 m.with_context(aq_skip_activity=True).write(keep)
             else:
-                m = Meeting.create(dict(vals, meeting_type="cliente" if external else "interna"))
+                m = Meeting.create(dict(vals, meeting_type="cliente" if external else "seguimiento"))
                 n += 1
             upd = {}
-            if folio and folio > (project.session_seq or 0):
+            if folio and stage_no == (project.session_stage or 1) and folio > (project.session_seq or 0):
                 upd["session_seq"] = folio
             if client_folio and client_folio > (project.client_seq or 0):
                 upd["client_seq"] = client_folio
@@ -1365,8 +1435,27 @@ class OpsProjectGoogle(models.Model):
     _inherit = "aq.ops.project"
 
     email_domains = fields.Char(string="Dominios de correo del cliente",
-                                help="Dominios separados por coma (p. ej. cliente.com, cliente.mx). Únicamente el correo que llega desde "
-                                     "estos dominios se vincula automáticamente a este proyecto; sin dominio configurado, nada se vincula solo.")
+                                help="Dominios separados por coma (p. ej. cliente.com, cliente.mx). El correo que llega desde estos dominios "
+                                     "se vincula automáticamente a este proyecto. Puede combinarse con 'Correos exactos'.")
+    email_addresses = fields.Char(string="Correos exactos del cliente",
+                                  help="Direcciones completas separadas por coma (p. ej. juan@gmail.com, compras@cliente.com). Útil cuando el cliente "
+                                       "escribe desde un correo personal o cuando solo ciertas personas de un dominio pertenecen a este proyecto. "
+                                       "Tiene prioridad sobre el dominio.")
+
+    def _email_list(self):
+        self.ensure_one()
+        return {c.strip().lower() for c in (self.email_addresses or "").replace(";", ",").split(",") if c.strip() and "@" in c}
+
+    @api.model
+    def _by_email_address(self, emails):
+        """Proyecto activo cuyos 'Correos exactos' incluyen alguna de las direcciones dadas."""
+        emails = {(e or "").lower().strip() for e in (emails or []) if e}
+        if not emails:
+            return self.browse()
+        for p in self.sudo().search([("stage", "not in", ("cerrado",)), ("email_addresses", "!=", False)], order="id"):
+            if emails & p._email_list():
+                return p
+        return self.browse()
 
     @api.model
     def _by_email_domain(self, domains):

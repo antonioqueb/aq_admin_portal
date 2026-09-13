@@ -38,6 +38,17 @@ export default function OpsSessions() {
           {owner && <button className="btn secondary small" onClick={() => api.post('/ops/sessions/recount', active ? { project_id: active.id } : {}).then(r => setRecount(r)).catch((e: any) => toast(e.message, 'err'))}>Recontar y ordenar</button>}
           {owner && <button className="btn secondary small" onClick={() => { if (confirm('¿Importar el histórico de Calendar (12 meses)? Es idempotente.')) api.post('/ops/sessions/import-history', { months: 12 }).then(r => { toast(`Histórico: ${JSON.stringify(r.stats)}`, 'ok'); load() }).catch((e: any) => toast(e.message, 'err')) }}>Importar histórico</button>}
         </div></div>
+      {recount && (
+        <div className="card" style={{ borderColor: 'var(--warn)' }}>
+          <h3>Recuento de sesiones {recount.aplicado ? '· aplicado' : '· vista previa (aún no se ha cambiado nada)'}</h3>
+          <div className="table-wrap"><table className="list"><thead><tr><th>Proyecto</th><th>Prefijo</th><th>Previas</th><th>Duplicadas</th><th>Etapa</th><th>Sesiones reales</th><th>En la etapa</th><th>Próximo folio</th><th>Consecutivo cliente</th></tr></thead>
+            <tbody>{(recount.proyectos || []).map((r: any) => <tr key={r.project_id}><td>{r.project}</td><td>{r.prefijo || '—'}</td><td>{r.total_previo}</td><td>{r.duplicadas}</td><td>{r.etapa}</td><td>{r.sesiones}</td><td>{r.sesiones_etapa}</td><td><b>#{r.proximo_folio}</b></td><td>{r.consecutivo_cliente ?? '—'}</td></tr>)}</tbody></table></div>
+          <div className="toolbar" style={{ marginTop: 8 }}>
+            {!recount.aplicado && <button className="btn" onClick={() => { if (confirm('¿Aplicar el recuento? Se archivan duplicados y se renumeran los folios 1..N por proyecto. Queda en la bitácora.')) api.post('/ops/sessions/recount', { ...(active ? { project_id: active.id } : {}), apply: true }).then(r => { setRecount(r); toast('Recuento aplicado', 'ok'); load() }).catch((e: any) => toast(e.message, 'err')) }}>Aplicar recuento</button>}
+            <button className="btn link" onClick={() => setRecount(null)}>Cerrar</button>
+          </div>
+        </div>
+      )}
       {!external && <SessionWizard types={d.types} projects={d.projects} defaultProject={active} onCreated={(m: any) => { setCreated(m); if (m.meet) navigator.clipboard?.writeText(m.meet).catch(() => {}); toast('Sesión creada · liga copiada', 'ok'); load() }} />}
       {created && (
         <div className="card" style={{ borderColor: 'var(--primary)' }}>

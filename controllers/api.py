@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 import base64
 import functools
+import inspect
+
+from psycopg2 import errors as pg_errors
 import json
 import logging
 from datetime import date, datetime, timedelta
@@ -9,6 +12,7 @@ from odoo import fields, http, _
 from odoo.exceptions import AccessDenied, AccessError, UserError, ValidationError
 from odoo.http import request
 
+from ..models.ops_security import CLIENT_ROLES as CLIENT_ROLES_OPS
 from .registry import RESOURCES, SECTIONS, COMMON_HIDDEN, NAME_SEARCH_MODELS, NAME_SEARCH_DOMAINS, resource_for_model
 
 _logger = logging.getLogger(__name__)
@@ -58,11 +62,19 @@ def portal_route(path, methods=("GET",), auth_required=True, roles=None, app="ad
     """Decorador: ruta HTTP JSON pública con autenticación por token del portal.
     app: 'admin' exige acceso al portal administrativo; 'ops' al de Operaciones; None = identidad compartida."""
     def decorator(func):
-        @http.route(path, type="http", auth="public", csrf=False, methods=list(methods) + ["OPTIONS"], cors="*", save_session=False)
+        # Odoo 19 pasa los query params como kwargs y avisa ("called ignoring args") si la función no los declara:
+        # aceptamos todo en el wrapper y entregamos a la función solo lo que su firma admite (los query params se leen de request.params).
+        sig = inspect.signature(func)
+        accepts_any = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+        accepted = {n for n, p in sig.parameters.items() if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)}
+
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
             if request.httprequest.method == "OPTIONS":
                 return request.make_response("", headers=[("Access-Control-Allow-Headers", "Authorization, Content-Type")])
+            kwargs.pop("user", None)  # nunca desde la query: lo inyecta el decorador
+            if not accepts_any:
+                kwargs = {k: v for k, v in kwargs.items() if k in accepted}
             user = request.env["aq.portal.user"].sudo()
             if auth_required:
                 user = _user()
@@ -85,10 +97,14 @@ def portal_route(path, methods=("GET",), auth_required=True, roles=None, app="ad
                 return _error(str(e.args[0]) if e.args else _("Acceso denegado"), 403)
             except (UserError, ValidationError) as e:
                 return _error(str(e.args[0]) if e.args else str(e), 400)
+            except pg_errors.SerializationFailure:
+                raise  # Odoo reintenta la petición completa
             except Exception as e:  # noqa
                 _logger.exception("Error en API del portal")
                 return _error(_("Error interno: %s") % e, 500)
-        return wrapper
+        # sin __wrapped__, Odoo inspecciona la firma del wrapper (**kwargs) y no descarta ni avisa por parámetros de query
+        del wrapper.__wrapped__
+        return http.route(path, type="http", auth="public", csrf=False, methods=list(methods) + ["OPTIONS"], cors="*", save_session=False)(wrapper)
     return decorator
 
 
@@ -119,7 +135,7 @@ def _field_list(model, resource):
     cfg = RESOURCES.get(resource) or {}
     only = cfg.get("only_fields")
     info = Model.fields_get(only) if only else Model.fields_get()
-    hidden = COMMON_HIDDEN
+    hidden = set(COMMON_HIDDEN) - {"create_date"}
     return {k: v for k, v in info.items() if k not in hidden and (not only or k in only)}
 
 
@@ -169,6 +185,103 @@ def _prepare_vals(model, vals, user, resource_cfg, create=False):
         else:
             out[k] = v if v is not None else False
     return out
+
+
+# ------------------------------------------------------------------ obligatorios y valores por defecto
+_SAFE_DOMAIN_OPS = {"=", "!=", "in", "not in", "ilike", "not ilike", "like", "=like", "=ilike", "<", "<=", ">", ">=", "child_of"}
+
+
+def _safe_domain(model, raw):
+    """Dominio adicional enviado por la SPA (p. ej. el del campo many2one). Solo tuplas simples y campos existentes."""
+    if not raw:
+        return []
+    try:
+        dom = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:  # noqa
+        return []
+    Model = request.env[model].sudo()
+    out = []
+    for t in dom or []:
+        if not (isinstance(t, (list, tuple)) and len(t) == 3):
+            continue
+        fname, op, val = t
+        if not isinstance(fname, str) or op not in _SAFE_DOMAIN_OPS or fname.split(".")[0] not in Model._fields:
+            continue
+        if not isinstance(val, (str, int, float, bool, list, tuple, type(None))):
+            continue
+        out.append((fname, op, val))
+    return out
+
+
+def _static_domain(finfo):
+    """Dominio literal de un many2one (fields_get devuelve lista o cadena; solo se expone si es lista)."""
+    dom = finfo.get("domain")
+    return dom if isinstance(dom, list) else None
+
+
+def _serialize_default(Model, fname, finfo, val):
+    t = finfo["type"]
+    if val in (None, False) and t not in ("boolean",):
+        return None
+    if t == "many2one":
+        rec = request.env[finfo["relation"]].sudo().browse(val).exists() if isinstance(val, int) else None
+        return {"id": rec.id, "name": rec.display_name} if rec else None
+    if t in ("many2many", "one2many"):
+        ids = []
+        for cmd in (val or []):
+            if isinstance(cmd, int):
+                ids.append(cmd)
+            elif isinstance(cmd, (list, tuple)) and cmd and cmd[0] == 6:
+                ids.extend(cmd[2] or [])
+            elif isinstance(cmd, (list, tuple)) and cmd and cmd[0] == 4:
+                ids.append(cmd[1])
+        recs = request.env[finfo["relation"]].sudo().browse(ids).exists() if ids else []
+        return [{"id": r.id, "name": r.display_name} for r in recs]
+    if t == "date":
+        return fields.Date.to_string(val) if val else None
+    if t == "datetime":
+        return fields.Datetime.to_string(val) if val else None
+    if t == "boolean":
+        return bool(val)
+    if t == "binary":
+        return None
+    return val
+
+
+def _defaults_payload(model, info, extra=None):
+    """Valores por defecto (default_get) serializados para pre-llenar el formulario de alta en la SPA."""
+    Model = request.env[model].sudo()
+    names = [k for k, f in info.items() if not f.get("readonly") and f["type"] not in ("one2many", "binary")]
+    raw = Model.default_get(names) if names else {}
+    raw.update(extra or {})
+    out = {}
+    for k, v in raw.items():
+        if k in info:
+            out[k] = _serialize_default(Model, k, info[k], v)
+    return out
+
+
+def _missing_required(model, vals, info):
+    """Etiquetas de los campos obligatorios (no readonly) que quedarían vacíos al crear: ni en vals ni con valor por defecto."""
+    Model = request.env[model].sudo()
+    req = [k for k, f in info.items() if f.get("required") and not f.get("readonly") and f["type"] not in ("boolean", "one2many", "binary")]
+    if not req:
+        return []
+    defaults = Model.default_get(req)
+    missing = []
+    for k in req:
+        v = vals[k] if k in vals else defaults.get(k)
+        empty = v in (None, False, "", [], ()) or (isinstance(v, (list, tuple)) and all(isinstance(c, (list, tuple)) and c and c[0] == 6 and not c[2] for c in v))
+        if empty:
+            missing.append(info[k].get("string") or k)
+    return missing
+
+
+def _check_required(model, vals, info):
+    missing = _missing_required(model, vals, info)
+    if missing:
+        raise UserError(_("Faltan campos obligatorios: %s.") % ", ".join(missing))
+
 
 
 def _cfg(resource):
@@ -263,8 +376,9 @@ class PortalApi(http.Controller):
         user = request.env["aq.portal.user"].sudo().from_token(body.get("token"), allow_pending=True)
         if not user:
             return _json({"error": _("Sesión no válida"), "code": 401}, status=401)
-        user.mfa_verify(body.get("code"))
-        request.env["aq.portal.session"].sudo().search([("user_id", "=", user.id), ("mfa_pending", "=", True)]).write({"mfa_pending": False})
+        session = request.env["aq.portal.session"].sudo().search([("user_id", "=", user.id), ("mfa_pending", "=", True)], order="id desc", limit=1)
+        user.mfa_verify(body.get("code"), session=session)
+        session.write({"mfa_pending": False, "mfa_failed": 0})
         _log(user, "login", summary=_("Inicio de sesión con MFA"))
         return _json({"token": body.get("token"), "user": user.to_public_dict()})
 
@@ -292,8 +406,8 @@ class PortalApi(http.Controller):
         allowed = ("contract_active", "contract_suspended", "scope_authorized", "hours_authorized", "commercial_condition", "payment_confirmed", "payment_restriction", "contract_expiring")
         if body.get("event_type") not in allowed:
             return _error(_("Tipo de evento no autorizado"), 403)
-        proj = request.env["aq.portal.project"].sudo().browse(int(body.get("admin_project_id", 0))).exists()
-        ops = request.env["aq.ops.project"].sudo().browse(int(body.get("ops_project_id", 0))).exists()
+        proj = request.env["aq.portal.project"].sudo().browse(int(body.get("admin_project_id") or 0)).exists()
+        ops = request.env["aq.ops.project"].sudo().browse(int(body.get("ops_project_id") or 0)).exists()
         if not proj and not ops:
             return _error(_("Indique el proyecto"), 400)
         ev = request.env["aq.ops.event"].sudo().create({"direction": "admin", "event_type": body["event_type"], "payload": json.dumps(body.get("payload") or {}, ensure_ascii=False),
@@ -353,6 +467,8 @@ class PortalApi(http.Controller):
                 if f["type"] in ("many2one", "many2many", "one2many"):
                     fo["relation"] = f.get("relation")
                     fo["relation_resource"] = resource_for_model(f.get("relation"))
+                    if f["type"] == "many2one" and _static_domain(f):
+                        fo["domain"] = _static_domain(f)
                 if fname in cfg.get("direction_fields", []):
                     fo["direction_only"] = True
                 fields_out[fname] = fo
@@ -410,10 +526,19 @@ class PortalApi(http.Controller):
         _check(cfg, "create", user)
         body = _body()
         vals = dict(cfg.get("defaults", {}), **_prepare_vals(cfg["model"], body, user, cfg, create=True))
+        info = _field_list(cfg["model"], resource)
+        _check_required(cfg["model"], vals, info)
         rec = request.env[cfg["model"]].sudo().with_context(portal_user_id=user.id).create(vals)
         _log(user, "create", resource=resource, model=cfg["model"], res_id=rec.id, summary=rec.display_name, changes=body)
-        info = _field_list(cfg["model"], resource)
         return _json({"record": _serialize(rec, info)}, status=201)
+
+    @portal_route(API + "/r/<string:resource>/defaults", methods=["GET"])
+    def record_defaults(self, user, resource):
+        """Valores por defecto para el formulario de alta (para que la SPA muestre y valide lo mismo que el servidor)."""
+        cfg = _cfg(resource)
+        _check(cfg, "create", user)
+        info = _field_list(cfg["model"], resource)
+        return _json({"defaults": _defaults_payload(cfg["model"], info, cfg.get("defaults"))})
 
     @portal_route(API + "/r/<string:resource>/<int:rec_id>", methods=["PUT", "PATCH"])
     def write_record(self, user, resource, rec_id):
@@ -493,6 +618,8 @@ class PortalApi(http.Controller):
         text = (body.get("body") or "").strip()
         if not text:
             raise UserError(_("La nota está vacía."))
+        if user.role == "consulta":
+            raise AccessError(_("El perfil de consulta no puede registrar notas."))
         if cfg.get("chatter"):
             rec.message_post(body="<b>%s</b> (portal): %s" % (user.name, text), message_type="comment")
         _log(user, "write", resource=resource, model=cfg["model"], res_id=rec.id, summary=_("Nota: %s") % text[:120])
@@ -530,13 +657,27 @@ class PortalApi(http.Controller):
             _log(user, "upload", resource=resource, model=cfg["model"], res_id=rec_id, summary=a.name)
         return _json({"attachments": [{"id": a.id, "name": a.name, "url": "%s/attachments/%d/download" % (API, a.id)} for a in created]}, status=201)
 
-    @portal_route(API + "/attachments/<int:att_id>/download", methods=["GET"])
+    @portal_route(API + "/attachments/<int:att_id>/download", methods=["GET"], app=None)
     def download_attachment(self, user, att_id):
         att = request.env["ir.attachment"].sudo().browse(att_id).exists()
         if not att:
             return _error(_("Archivo no encontrado"), 404)
         resource = resource_for_model(att.res_model)
-        if not resource or user.role not in RESOURCES[resource]["roles"]["read"]:
+        ok = False
+        if resource:
+            ok = user.has_admin_access and user.role in RESOURCES[resource]["roles"]["read"]
+        elif user.has_ops_access and user.ops_role:
+            from .ops_registry import ops_resource_for_model, OPS_RESOURCES
+            from .ops_api import _get as _ops_get, _effective_role
+            r = ops_resource_for_model(att.res_model)
+            if r and _effective_role(user) in OPS_RESOURCES[r]["roles"]["read"]:
+                try:
+                    ok = bool(_ops_get(OPS_RESOURCES[r], user, att.res_id))
+                    if ok and _effective_role(user) in CLIENT_ROLES_OPS and (att.description or "").startswith("internal"):
+                        ok = False
+                except AccessError:
+                    ok = False
+        if not ok:
             return _error(_("Sin permiso para este archivo"), 403)
         data = base64.b64decode(att.datas or b"")
         return request.make_response(data, headers=[("Content-Type", att.mimetype or "application/octet-stream"),
@@ -547,7 +688,9 @@ class PortalApi(http.Controller):
         att = request.env["ir.attachment"].sudo().browse(att_id).exists()
         if att:
             resource = resource_for_model(att.res_model)
-            if resource and RESOURCES[resource].get("sensitive") and user.role != "direccion":
+            if not resource:
+                return _error(_("Sin permiso para este archivo"), 403)
+            if RESOURCES[resource].get("sensitive") and user.role != "direccion":
                 raise AccessError(_("Los archivos de expedientes sensibles solo los elimina Dirección."))
             _log(user, "unlink", resource=resource, model=att.res_model, res_id=att.res_id, summary=_("Archivo eliminado: %s") % att.name)
             att.unlink()
@@ -588,11 +731,11 @@ class PortalApi(http.Controller):
         if model not in NAME_SEARCH_MODELS:
             return _error(_("Modelo no permitido"), 403)
         q = request.params.get("q") or ""
-        domain = list(NAME_SEARCH_DOMAINS.get(model, []))
+        domain = list(NAME_SEARCH_DOMAINS.get(model, [])) + _safe_domain(model, request.params.get("domain"))
         Model = request.env[model].sudo()
         if "active" in Model._fields:
             domain.append(("active", "=", True))
-        res = Model.name_search(q, args=domain, limit=int(request.params.get("limit", 20)))
+        res = Model.name_search(q, domain=domain, limit=min(int(request.params.get("limit", 20)), 200))
         return _json({"results": [{"id": r[0], "name": r[1]} for r in res]})
 
     # ------------------------------------------------------------------ tablero / calendario

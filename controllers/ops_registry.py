@@ -23,7 +23,7 @@ OPS_RESOURCES = {
         "list": ["name", "partner_id", "pm_id", "service_type", "stage", "health", "priority", "risk_level", "hours_pct", "next_milestone_id", "next_action_date", "client_dependent"],
         "filters": ["stage", "health", "service_type", "priority", "risk_level", "pm_id", "partner_id", "client_dependent", "has_next_action"],
         "groups": [
-            {"title": "Identidad", "fields": ["name", "code", "partner_id", "email_domains", "service_type", "template_id", "methodology", "stage", "priority", "client_visible"]},
+            {"title": "Identidad", "fields": ["name", "code", "partner_id", "email_domains", "email_addresses", "service_type", "template_id", "methodology", "stage", "priority", "client_visible"]},
             {"title": "Sesiones y documentos", "fields": ["session_prefix", "session_seq", "session_stage", "stage_started_on", "folio_scheme", "session_po", "client_seq", "group_email", "session_count", "drive_folder_id", "drive_folder_url"]},
             {"title": "Objetivo y alcance vigente", "fields": ["objective", "scope_current", "scope_version", "admin_project_ref"]},
             {"title": "Equipo", "fields": ["pm_id", "functional_lead_id", "tech_lead_id", "team_member_ids", "client_contact_ids", "validator_ids", "escalation_path"]},
@@ -86,7 +86,8 @@ OPS_RESOURCES = {
         "tabs": [{"field": "child_ids", "resource": "items", "parent_field": "parent_id", "label": "Hijos"}, {"field": "test_case_ids", "resource": "test_cases", "parent_field": "item_id", "label": "Casos de prueba"},
                  {"field": "acceptance_ids", "resource": "acceptances", "parent_field": "item_id", "label": "Validaciones"}, {"field": "timesheet_ids", "resource": "timesheets", "parent_field": "item_id", "label": "Tiempo"},
                  {"field": "comment_ids", "resource": "comments", "parent_field": "item_id", "label": "Comunicación"}],
-        "actions": [{"name": "action_block", "label": "Bloquear", "roles": TEAM}, {"name": "action_unblock", "label": "Desbloquear", "roles": TEAM}, {"name": "action_ready_for_validation", "label": "Listo para validación", "roles": INTERNAL}],
+        "actions": [{"name": "action_done", "label": "✓ Marcar como terminado", "roles": TEAM}, {"name": "action_reopen", "label": "Reabrir", "roles": TEAM},
+                    {"name": "action_block", "label": "Bloquear", "roles": TEAM}, {"name": "action_unblock", "label": "Desbloquear", "roles": TEAM}, {"name": "action_ready_for_validation", "label": "Listo para validación", "roles": INTERNAL}],
         "client_hidden": CLIENT_HIDDEN_COMMON + ["assignee_id", "reviewer_id", "rank", "depends_on_ids", "dependent_ids", "cycle_days", "lead_days", "age_days", "days_in_state", "blocked_hours", "is_recurring", "recurrence_days"],
         "roles": {"read": EVERYONE, "write": TEAM, "create": INTERNAL, "delete": LEADS},
     },
@@ -292,6 +293,68 @@ OPS_RESOURCES = {
     "saved_views": {"model": "aq.ops.saved.view", "label": "Vistas guardadas", "singular": "Vista", "section": None, "scope": None, "list": ["name", "resource", "view_mode", "shared"],
                     "groups": [{"title": "Vista", "fields": ["name", "resource", "view_mode", "filters_json", "shared"]}], "roles": {"read": EVERYONE, "write": EVERYONE, "create": EVERYONE, "delete": EVERYONE}},
 }
+
+# ------------------------------------------------------------------ interfaz mínima (el 20 % que se usa a diario)
+# La lógica de negocio y todos los campos siguen existiendo; aquí solo se decide qué se muestra de entrada.
+# 'essential' = campos de la ficha y del alta; el resto queda en "Más detalles". 'list' = columnas de la lista.
+OPS_ESSENTIALS = {
+    "projects": ["name", "partner_id", "email_domains", "email_addresses", "pm_id", "service_type", "stage", "date_start", "date_end_current", "next_action", "next_action_date", "objective"],
+    "milestones": ["name", "project_id", "date_current", "state", "owner_id"],
+    "requests": ["name", "description", "partner_id", "project_id", "request_type", "urgency", "state"],
+    "items": ["name", "project_id", "item_type", "state", "assignee_id", "date_due", "estimate_hours", "description"],
+    "changes": ["name", "project_id", "description", "estimate_hours", "state"],
+    "meetings": ["name", "project_id", "date", "meeting_type", "member_ids", "client_partner_ids", "state", "agenda"],
+    "agreements": ["name", "kind", "owner_id", "due_date", "confirmed"],
+    "questions": ["name", "owner_partner_id", "answer", "answered"],
+    "decisions": ["name", "project_id", "date", "decision_text", "state"],
+    "raid": ["name", "project_id", "raid_type", "description", "probability", "impact", "owner_id", "state"],
+    "incidents": ["name", "project_id", "partner_id", "severity", "step", "owner_id", "description"],
+    "test_plans": ["name", "project_id", "plan_type", "state"],
+    "test_cases": ["name", "item_id", "steps", "expected", "last_result"],
+    "test_runs": ["result", "evidence", "executed_by_id"],
+    "acceptances": ["project_id", "item_id", "validator_partner_id", "due_date", "criteria", "decision"],
+    "releases": ["name", "project_id", "environment_id", "planned_at", "state"],
+    "environments": ["name", "env_type", "url"],
+    "sprints": ["name", "project_id", "goal", "date_start", "date_end", "state"],
+    "timesheets": ["member_id", "project_id", "item_id", "date", "hours", "description"],
+    "capacity": ["member_id", "week", "hours_available", "planned_hours"],
+    "documents": ["name", "doc_type", "project_id", "drive_url"],
+    "comments": ["body", "internal"],
+    "links": ["name", "url", "link_type"],
+    "status_reports": ["name", "project_id", "date", "health", "summary"],
+    "templates": ["name", "service_type", "methodology"],
+    "template_phases": ["sequence", "name", "offset_days"],
+    "template_items": ["sequence", "name", "item_type"],
+    "automations": ["name", "trigger", "action_type", "active"],
+    "events": ["direction", "event_type", "state"],
+    "integrations": ["name", "kind", "enabled", "api_key", "model", "webhook_url"],
+    "breakglass": ["user_id", "justification", "granted_role", "project_id", "start", "end"],
+    "session_types": ["name", "code", "duration_minutes", "meeting_type", "invite_team", "invite_client"],
+    "google_rules": ["name", "match_from", "match_keywords", "target_app", "target_type", "project_id"],
+    "saved_views": ["name", "resource", "shared"],
+}
+OPS_LISTS = {
+    "projects": ["name", "partner_id", "pm_id", "stage", "health", "next_action_date"],
+    "milestones": ["project_id", "name", "date_current", "state", "owner_id"],
+    "requests": ["name", "partner_id", "project_id", "request_type", "urgency", "state"],
+    "items": ["name", "item_type", "state", "assignee_id", "date_due", "project_id"],
+    "changes": ["name", "project_id", "estimate_hours", "state"],
+    "meetings": ["name", "project_id", "date", "meeting_type", "state"],
+    "incidents": ["name", "project_id", "severity", "step", "owner_id"],
+    "raid": ["name", "project_id", "raid_type", "owner_id", "state"],
+    "releases": ["name", "project_id", "environment_id", "planned_at", "state"],
+    "timesheets": ["date", "member_id", "project_id", "item_id", "hours", "state"],
+    "sprints": ["name", "project_id", "date_start", "date_end", "state"],
+    "acceptances": ["project_id", "item_id", "validator_partner_id", "due_date", "decision"],
+    "decisions": ["date", "name", "project_id", "state"],
+    "documents": ["name", "doc_type", "project_id", "drive_url"],
+}
+for _k, _fields in OPS_ESSENTIALS.items():
+    if _k in OPS_RESOURCES:
+        OPS_RESOURCES[_k]["essential"] = _fields
+for _k, _cols in OPS_LISTS.items():
+    if _k in OPS_RESOURCES:
+        OPS_RESOURCES[_k]["list"] = _cols
 
 OPS_NAME_SEARCH_MODELS = {r["model"] for r in OPS_RESOURCES.values()} | {"res.partner", "aq.portal.member"}
 

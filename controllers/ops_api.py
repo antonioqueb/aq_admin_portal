@@ -10,7 +10,7 @@ from odoo import fields, http, _
 from odoo.exceptions import AccessError, UserError
 from odoo.http import request
 
-from .api import API, portal_route, _json, _error, _body, _log, _serialize, _prepare_vals, _ip, COMMON_HIDDEN
+from .api import API, portal_route, _json, _error, _body, _log, _serialize, _prepare_vals, _ip, COMMON_HIDDEN, _check_required, _defaults_payload, _safe_domain, _static_domain
 from .ops_registry import OPS_RESOURCES, OPS_SECTIONS, OPS_NAME_SEARCH_MODELS, ops_resource_for_model, CLIENT_APPROVERS
 from ..models.ops_security import FULL_ROLES, INTERNAL_ROLES, RESTRICTED_ROLES, CLIENT_ROLES
 
@@ -66,8 +66,15 @@ def _scope_domain(cfg, user):
             dom.append(("id", "in", ids))
     elif sc:
         if ids is not None:
-            dom.append((sc, "in", ids))
-    elif role in CLIENT_ROLES and cfg["model"] not in ("aq.ops.comment", "aq.ops.saved.view", "aq.ops.capacity"):
+            if cfg["model"] == "aq.ops.timesheet" and user.member_id:
+                # las horas internas (sin proyecto) del propio integrante también son suyas
+                dom += ["|", (sc, "in", ids), "&", ("project_id", "=", False), ("member_id", "=", user.member_id.id)]
+            else:
+                dom.append((sc, "in", ids))
+    elif cfg["model"] == "aq.ops.comment":
+        if ids is not None:  # los comentarios heredan el alcance del registro al que pertenecen
+            dom += ["|", "|", "|", ("project_id", "in", ids), ("item_id.project_id", "in", ids), ("request_id.project_id", "in", ids), ("incident_id.project_id", "in", ids)]
+    elif role in CLIENT_ROLES and cfg["model"] not in ("aq.ops.saved.view", "aq.ops.capacity"):
         dom.append(("id", "=", 0))
     if role in CLIENT_ROLES:
         if "client_visible" in Model._fields:
@@ -105,7 +112,7 @@ def _check(cfg, op, user):
 def _fields(cfg, user):
     Model = request.env[cfg["model"]].sudo()
     info = Model.fields_get()
-    hidden = set(COMMON_HIDDEN)
+    hidden = set(COMMON_HIDDEN) - {"create_date"}
     if _effective_role(user) in CLIENT_ROLES:
         hidden |= set(cfg.get("client_hidden", []))
     if cfg["model"] == "aq.ops.integration" and _effective_role(user) != "platform_owner":
@@ -116,11 +123,27 @@ def _fields(cfg, user):
 def _get(cfg, user, rec_id, op="read"):
     """Autorización a nivel de objeto: el registro debe estar dentro del alcance del usuario."""
     Model = request.env[cfg["model"]].sudo()
-    rec = Model.search([("id", "=", rec_id)] + list(cfg.get("domain", [])) + _scope_domain(cfg, user), limit=1)
+    extra = [("user_id", "=", user.id)] if cfg["model"] == "aq.ops.saved.view" and op != "read" else []
+    rec = Model.search([("id", "=", rec_id)] + list(cfg.get("domain", [])) + _scope_domain(cfg, user) + extra, limit=1)
     if not rec:
         _log(user, "denied", resource=None, model=cfg["model"], res_id=rec_id, summary="object-level %s" % op)
         raise AccessError(_("Registro fuera de su alcance o inexistente."))
     return rec
+
+
+def _int(v, default=None):
+    """Entero desde query/body; texto inválido → UserError (400) en vez de 500."""
+    if v in (None, "", False):
+        return default
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        raise UserError(_("Parámetro numérico inválido: %s") % v)
+
+
+def _no_observer(user):
+    if _effective_role(user) == "observer":
+        raise AccessError(_("Perfil observador: solo consulta."))
 
 
 def _build_domain(cfg, user, params):
@@ -147,7 +170,7 @@ def _build_domain(cfg, user, params):
             elif isinstance(v, list):
                 dom.append((k, "in", v))
             elif t == "many2one":
-                dom.append((k, "=", int(v)))
+                dom.append((k, "=", _int(v)))
             else:
                 dom.append((k, "=", v))
     extra = params.get("domain")
@@ -156,10 +179,10 @@ def _build_domain(cfg, user, params):
             extra = json.loads(extra) if isinstance(extra, str) else extra
         except Exception:
             extra = []
-        for leaf in extra:
-            if isinstance(leaf, (list, tuple)) and len(leaf) == 3 and leaf[0].split(".")[0] not in info:
-                raise UserError(_("Campo no permitido: %s") % leaf[0])
-        dom += [tuple(l) if isinstance(l, list) else l for l in extra]
+        safe = _safe_domain(cfg["model"], extra)
+        if _effective_role(user) in CLIENT_ROLES:
+            safe = [t for t in safe if "." not in t[0]]  # sin rutas relacionales para clientes
+        dom += safe
     if "active" in info and not params.get("include_archived"):
         dom.append(("active", "=", True))
     return dom
@@ -183,6 +206,8 @@ class OpsApi(http.Controller):
                     d["selection"] = [list(x) for x in (f.get("selection") or [])]
                 if f["type"] in ("many2one", "many2many", "one2many"):
                     d["relation"] = f.get("relation"); d["relation_resource"] = ops_resource_for_model(f.get("relation"))
+                    if f["type"] == "many2one" and _static_domain(f):
+                        d["domain"] = _static_domain(f)
                 if role in CLIENT_ROLES and cfg.get("client_editable") and fname not in cfg["client_editable"]:
                     d["readonly"] = True
                 fo[fname] = d
@@ -240,13 +265,21 @@ class OpsApi(http.Controller):
         if role in CLIENT_ROLES and cfg["model"] == "aq.ops.request":
             vals.update(partner_id=user.organization_id.id, requester_user_id=user.id, source=body["source"])
         # el padre debe estar dentro del alcance
-        for pf in ("project_id", "item_id", "request_id", "meeting_id", "incident_id", "case_id", "release_id", "milestone_id"):
-            if vals.get(pf):
-                pres = {"project_id": "projects", "item_id": "items", "request_id": "requests", "meeting_id": "meetings", "incident_id": "incidents", "case_id": "test_cases", "release_id": "releases", "milestone_id": "milestones"}[pf]
+        parents = {"project_id": "projects", "item_id": "items", "request_id": "requests", "meeting_id": "meetings", "incident_id": "incidents", "case_id": "test_cases", "release_id": "releases",
+                   "milestone_id": "milestones", "parent_id": "items", "deliverable_id": "items", "sprint_id": "sprints", "plan_id": "test_plans"}
+        for pf, pres in parents.items():
+            if vals.get(pf) and pres in OPS_RESOURCES and request.env[cfg["model"]]._fields.get(pf) is not None and request.env[cfg["model"]]._fields[pf].comodel_name == OPS_RESOURCES[pres]["model"]:
                 _get(OPS_RESOURCES[pres], user, vals[pf], "link")
+        _check_required(cfg["model"], vals, _fields(cfg, user))
         rec = request.env[cfg["model"]].sudo().with_context(portal_user_id=user.id).create(vals)
         _log(user, "create", resource="ops:" + resource, model=cfg["model"], res_id=rec.id, summary=rec.display_name, changes=body)
         return _json({"record": _serialize(rec, _fields(cfg, user))}, status=201)
+
+    @portal_route(OPS + "/r/<string:resource>/defaults", methods=["GET"], app="ops")
+    def record_defaults(self, user, resource):
+        """Valores por defecto para el formulario de alta (mismos que aplicará el servidor)."""
+        cfg = _cfg(resource); _check(cfg, "create", user)
+        return _json({"defaults": _defaults_payload(cfg["model"], _fields(cfg, user))})
 
     @portal_route(OPS + "/r/<string:resource>/<int:rec_id>", methods=["PUT", "PATCH"], app="ops")
     def write_record(self, user, resource, rec_id):
@@ -302,6 +335,7 @@ class OpsApi(http.Controller):
 
     @portal_route(OPS + "/r/<string:resource>/<int:rec_id>/note", methods=["POST"], app="ops")
     def note(self, user, resource, rec_id):
+        _no_observer(user)
         cfg = _cfg(resource); _check(cfg, "read", user); rec = _get(cfg, user, rec_id)
         text = (_body().get("body") or "").strip()
         if not text:
@@ -324,6 +358,7 @@ class OpsApi(http.Controller):
 
     @portal_route(OPS + "/r/<string:resource>/<int:rec_id>/attachments", methods=["POST"], app="ops")
     def upload(self, user, resource, rec_id):
+        _no_observer(user)
         cfg = _cfg(resource)
         if _effective_role(user) in CLIENT_ROLES and cfg["model"] not in ("aq.ops.request", "aq.ops.acceptance", "aq.ops.test.run", "aq.ops.incident", "aq.ops.item"):
             raise AccessError(_("No puede cargar archivos en este recurso."))
@@ -344,9 +379,10 @@ class OpsApi(http.Controller):
         dom = _scope_domain(OPS_RESOURCES[res_key], user) if res_key else []
         if model == "res.partner" and _effective_role(user) in CLIENT_ROLES:
             dom = ["|", ("id", "=", user.organization_id.id), ("parent_id", "=", user.organization_id.id)]  # nunca cruzar clientes
+        dom += _safe_domain(model, request.params.get("domain"))  # dominio del campo (p. ej. solo empresas)
         if "active" in Model._fields:
             dom.append(("active", "=", True))
-        res = Model.name_search(request.params.get("q") or "", args=dom, limit=min(int(request.params.get("limit", 20)), 200))
+        res = Model.name_search(request.params.get("q") or "", domain=dom, limit=min(int(request.params.get("limit", 20)), 200))
         return _json({"results": [{"id": r[0], "name": r[1]} for r in res]})
 
     @portal_route(OPS + "/export/<string:resource>", methods=["GET"], app="ops")
@@ -405,8 +441,8 @@ class OpsApi(http.Controller):
         dt = fields.Date.to_date(p.get("to")) if p.get("to") else None
         dom = self._pdom(user)
         if p.get("project_id"):
-            _get(OPS_RESOURCES["projects"], user, int(p["project_id"]))
-            dom = dom + [("project_id", "=", int(p["project_id"]))]
+            _get(OPS_RESOURCES["projects"], user, _int(p["project_id"]))
+            dom = dom + [("project_id", "=", _int(p["project_id"]))]
         return _json(request.env["aq.ops.engine"].sudo().ops_kpis(dom, df, dt))
 
     # ------------------------------------------------------------------ tablero / items
@@ -418,13 +454,15 @@ class OpsApi(http.Controller):
         if body.get("state"):
             vals["state"] = body["state"]
         if body.get("rank") is not None:
-            vals["rank"] = int(body["rank"])
-        if body.get("sprint_id") is not None:
-            vals["sprint_id"] = body["sprint_id"] or False
-        if body.get("assignee_id") is not None:
-            vals["assignee_id"] = body["assignee_id"] or False
-        if body.get("date_due"):
-            vals["date_due"] = body["date_due"]; vals["reschedule_reason"] = body.get("reason")
+            vals["rank"] = _int(body["rank"], 0)
+        if "sprint_id" in body:
+            vals["sprint_id"] = _int(body["sprint_id"]) or False
+            if vals["sprint_id"]:
+                _get(OPS_RESOURCES["sprints"], user, vals["sprint_id"], "link")
+        if "assignee_id" in body:
+            vals["assignee_id"] = _int(body["assignee_id"]) or False
+        if "date_due" in body:
+            vals["date_due"] = body["date_due"] or False; vals["reschedule_reason"] = body.get("reason")
         if body.get("blocked_reason"):
             vals["blocked_reason"] = body["blocked_reason"]
         rec.with_context(aq_force_wip=bool(body.get("force_wip"))).write(vals)
@@ -434,9 +472,12 @@ class OpsApi(http.Controller):
     # ------------------------------------------------------------------ tiempo
     @portal_route(OPS + "/timer/start", methods=["POST"], app="ops")
     def timer_start(self, user):
+        _no_observer(user)
         b = _body()
         if b.get("item_id"):
-            _get(OPS_RESOURCES["items"], user, int(b["item_id"]))
+            _get(OPS_RESOURCES["items"], user, _int(b["item_id"]))
+        if b.get("project_id"):
+            _get(OPS_RESOURCES["projects"], user, _int(b["project_id"]), "link")
         t = request.env["aq.ops.timesheet"].sudo().with_context(portal_user_id=user.id).timer_start_for(user, b.get("item_id"), b.get("project_id"), b.get("description"))
         return _json({"timer": {"id": t.id, "since": fields.Datetime.to_string(t.timer_start)}})
 
@@ -450,8 +491,12 @@ class OpsApi(http.Controller):
 
     @portal_route(OPS + "/timesheets/week", methods=["GET"], app="ops")
     def week(self, user):
+        _check(OPS_RESOURCES["timesheets"], "read", user)
         week = request.params.get("week") or fields.Date.today().strftime("%G-W%V")
-        start, end = request.env["aq.ops.capacity"]._week_bounds(week)
+        try:
+            start, end = request.env["aq.ops.capacity"]._week_bounds(week)
+        except Exception:
+            return _error(_("Semana inválida (formato AAAA-Wnn)."), 400)
         dom = [("date", ">=", start), ("date", "<=", end)] + _scope_domain(OPS_RESOURCES["timesheets"], user)
         ts = request.env["aq.ops.timesheet"].sudo().search(dom, order="date, id")
         info = _fields(OPS_RESOURCES["timesheets"], user)
@@ -466,7 +511,9 @@ class OpsApi(http.Controller):
         if _effective_role(user) not in FULL_ROLES | {"pm", "functional_lead", "tech_lead"}:
             return _error(_("Solo PM/líderes aprueban"), 403)
         b = _body()
-        dom = [("week", "=", b.get("week")), ("state", "=", "enviado")] + ([("member_id", "=", int(b["member_id"]))] if b.get("member_id") else []) + _scope_domain(OPS_RESOURCES["timesheets"], user)
+        if not b.get("week"):
+            return _error(_("Indique la semana."), 400)
+        dom = [("week", "=", b.get("week")), ("state", "=", "enviado")] + ([("member_id", "=", _int(b["member_id"]))] if b.get("member_id") else []) + _scope_domain(OPS_RESOURCES["timesheets"], user)
         ts = request.env["aq.ops.timesheet"].sudo().search(dom).with_context(portal_user_id=user.id)
         ts.action_approve()
         _log(user, "action", resource="ops:timesheets", summary=_("Aprobación semanal %s: %d registros") % (b.get("week"), len(ts)))
@@ -485,12 +532,15 @@ class OpsApi(http.Controller):
         elif role not in FULL_ROLES | {"pm"}:
             raise AccessError(_("Solo el cliente (o PM por delegación documentada) decide una validación."))
         b = _body()
+        if b.get("decision") not in ("aprobado", "cambios", "rechazado"):
+            return _error(_("Decisión inválida."), 400)
         a.with_context(portal_user_id=user.id).decide(b.get("decision"), b.get("reason"), user)
         _log(user, "action", resource="ops:acceptances", model="aq.ops.acceptance", res_id=a.id, summary=_("Validación: %s") % b.get("decision"))
         return _json({"record": _serialize(a, _fields(OPS_RESOURCES["acceptances"], user))})
 
     @portal_route(OPS + "/questions/<int:qid>/answer", methods=["POST"], app="ops")
     def answer(self, user, qid):
+        _no_observer(user)
         q = _get(OPS_RESOURCES["questions"], user, qid, "write")
         q.write({"answer": _body().get("answer"), "answered": True})
         request.env["aq.ops.notification"].sudo().notify_role(q.meeting_id.project_id, ["pm"], "cliente_respondio", _("Pregunta respondida: %s") % q.name, "meetings", q.meeting_id.id)
@@ -504,7 +554,7 @@ class OpsApi(http.Controller):
     @portal_route(OPS + "/live", methods=["GET"], app="ops")
     def live(self, user):
         """Actualización en vivo por sondeo ligero (sustituye SSE/WebSockets, que Odoo no mantiene abiertos por worker)."""
-        since = request.params.get("since")
+        since = fields.Datetime.to_datetime((request.params.get("since") or "").replace("+", " ")[:19]) if request.params.get("since") else None
         dom = [("user_id", "=", user.id), ("read", "=", False)]
         if since:
             dom.append(("create_date", ">", since))
@@ -519,7 +569,7 @@ class OpsApi(http.Controller):
         if role in CLIENT_ROLES:
             return _error(_("Sin acceso"), 403)
         dom = [] if role in FULL_ROLES | {"pm", "functional_lead", "tech_lead"} else [("id", "=", user.member_id.id)]
-        return _json({"forecast": request.env["aq.ops.engine"].sudo().capacity_forecast(dom, int(request.params.get("weeks", 4)))})
+        return _json({"forecast": request.env["aq.ops.engine"].sudo().capacity_forecast(dom, min(_int(request.params.get("weeks"), 4), 26))})
 
     @portal_route(OPS + "/views", methods=["GET"], app="ops")
     def views_list(self, user):
@@ -546,11 +596,15 @@ class OpsApi(http.Controller):
         if role in CLIENT_ROLES or role == "observer":
             return _error(_("Sin permiso"), 403)
         b = _body()
-        project = _get(OPS_RESOURCES["projects"], user, int(b["project_id"]))
-        stype = request.env["aq.ops.session.type"].sudo().browse(int(b["type_id"])).exists()
+        if not (b.get("project_id") and b.get("type_id") and b.get("start")):
+            return _error(_("Faltan proyecto, tipo de sesión o fecha/hora."), 400)
+        project = _get(OPS_RESOURCES["projects"], user, _int(b["project_id"]))
+        stype = request.env["aq.ops.session.type"].sudo().browse(_int(b["type_id"])).exists()
         if not stype:
             return _error(_("Tipo de sesión inválido"), 400)
-        start = fields.Datetime.to_datetime(b["start"].replace("T", " ")[:19])
+        start = fields.Datetime.to_datetime(str(b["start"]).replace("T", " ")[:19])
+        if not start:
+            return _error(_("Fecha/hora inválida."), 400)
         m, ev = request.env["aq.ops.meeting"].sudo().with_context(portal_user_id=user.id).generate_session(
             project, stype, start, b.get("duration"), b.get("extra_emails") or [], b.get("agenda"), user,
             attendees=b.get("attendees"), send_invites=b.get("send_invites", True), context_note=b.get("context"), share_note=b.get("share_note"))
@@ -562,8 +616,10 @@ class OpsApi(http.Controller):
     @portal_route(OPS + "/sessions/invitees", methods=["GET"], app="ops")
     def session_invitees(self, user):
         p = request.params
-        project = _get(OPS_RESOURCES["projects"], user, int(p["project_id"]))
-        stype = request.env["aq.ops.session.type"].sudo().browse(int(p["type_id"])).exists()
+        if not (p.get("project_id") and p.get("type_id")):
+            return _error(_("Faltan proyecto o tipo de sesión."), 400)
+        project = _get(OPS_RESOURCES["projects"], user, _int(p["project_id"]))
+        stype = request.env["aq.ops.session.type"].sudo().browse(_int(p["type_id"])).exists()
         if not stype:
             return _error(_("Tipo inválido"), 400)
         return _json({"invitees": request.env["aq.ops.meeting"].sudo().suggested_invitees(project, stype)})
@@ -575,8 +631,8 @@ class OpsApi(http.Controller):
         if role in CLIENT_ROLES or role == "observer":
             return _error(_("Sin permiso"), 403)
         b = _body()
-        project = _get(OPS_RESOURCES["projects"], user, int(b["project_id"]))
-        stype = request.env["aq.ops.session.type"].sudo().browse(int(b["type_id"])).exists()
+        project = _get(OPS_RESOURCES["projects"], user, _int(b["project_id"]))
+        stype = request.env["aq.ops.session.type"].sudo().browse(_int(b["type_id"])).exists()
         if not stype:
             return _error(_("Tipo de sesión inválido"), 400)
         start = fields.Datetime.to_datetime(b["start"].replace("T", " ")[:19]) if b.get("start") else None
@@ -589,9 +645,9 @@ class OpsApi(http.Controller):
         dom = _scope_domain(OPS_RESOURCES["meetings"], user)
         p = request.params
         if p.get("project_id"):
-            dom.append(("project_id", "=", int(p["project_id"])))
+            dom.append(("project_id", "=", _int(p["project_id"])))
         Meeting = request.env["aq.ops.meeting"].sudo()
-        rows = Meeting.search(dom, order="date desc", limit=int(p.get("limit", 1000)))
+        rows = Meeting.search(dom, order="date desc", limit=min(_int(p.get("limit"), 1000), 5000))
         projects = {}
         out = []
         for m in rows:
@@ -599,10 +655,12 @@ class OpsApi(http.Controller):
                         "type": m.session_type_id.name or dict(m._fields["meeting_type"].selection).get(m.meeting_type), "state": m.state, "processed": m.processed,
                         "has_transcript": bool(m.transcript), "doc": m.summary_doc_url or m.google_doc_url, "meet": m.location, "imported": m.imported,
                         "agreements": m.agreement_count, "followups": m.followups_count, "followups_log": m.followups_log})
-            pr = projects.setdefault(m.project_id.id, {"project": m.project_id.name, "prefix": m.project_id.session_prefix, "seq": max(m.project_id.session_seq or 0, m.project_id.next_folio_number() - 1),
-                                                       "po": m.project_id.session_po, "scheme": m.project_id.folio_scheme, "client_seq": m.project_id.client_seq,
-                                                       "stage": m.project_id.session_stage or 1,
-                                                       "total": 0, "processed": 0, "pending_transcript": 0, "sin_folio": 0})
+            if m.project_id.id not in projects:
+                projects[m.project_id.id] = {"project": m.project_id.name, "prefix": m.project_id.session_prefix, "seq": max(m.project_id.session_seq or 0, m.project_id.next_folio_number() - 1),
+                                             "po": m.project_id.session_po, "scheme": m.project_id.folio_scheme, "client_seq": m.project_id.client_seq,
+                                             "stage": m.project_id.session_stage or 1,
+                                             "total": 0, "processed": 0, "pending_transcript": 0, "sin_folio": 0}
+            pr = projects[m.project_id.id]
             pr["total"] += 1
             pr["sin_folio"] += 0 if m.folio else 1
             pr["seq"] = max(pr["seq"], m.folio or 0) if (m.stage_no or 1) == (m.project_id.session_stage or 1) else pr["seq"]
@@ -614,7 +672,7 @@ class OpsApi(http.Controller):
     def session_import(self, user):
         if _effective_role(user) not in ("platform_owner", "ops_director"):
             return _error(_("Solo propietario/Dirección de Operaciones"), 403)
-        stats = request.env["aq.ops.session.importer"].sudo().with_context(portal_user_id=user.id).import_history(int(_body().get("months", 12)))
+        stats = request.env["aq.ops.session.importer"].sudo().with_context(portal_user_id=user.id).import_history(min(_int(_body().get("months"), 12), 60))
         _log(user, "action", resource="ops:meetings", summary=_("Importación de sesiones históricas: %s") % stats)
         return _json({"stats": stats})
 
@@ -622,13 +680,15 @@ class OpsApi(http.Controller):
     def session_assign_folios(self, user):
         """Integra al consecutivo las sesiones sin folio (todas o las del proyecto indicado)."""
         role = _effective_role(user)
-        if role in CLIENT_ROLES or role == "observer":
+        if role not in FULL_ROLES | {"pm", "functional_lead", "tech_lead"}:
             return _error(_("Sin permiso"), 403)
         b = _body()
         Project = request.env["aq.ops.project"].sudo()
-        projects = Project.browse(int(b["project_id"])) if b.get("project_id") else Project.search([("stage", "!=", "cerrado")])
         if b.get("project_id"):
-            _get(OPS_RESOURCES["projects"], user, int(b["project_id"]))
+            projects = _get(OPS_RESOURCES["projects"], user, _int(b["project_id"]))
+        else:
+            ids, _o, _r = _scope(user)
+            projects = Project.search([("stage", "!=", "cerrado")] + ([("id", "in", ids)] if ids is not None else []))
         total = projects.with_context(portal_user_id=user.id).action_assign_missing_folios()
         _log(user, "action", resource="ops:meetings", summary=_("Folios asignados: %s") % total)
         return _json({"assigned": total, "projects": [{"project": p.name, "prefix": p.session_prefix, "seq": p.session_seq, "next": p.next_folio_number()} for p in projects]})
@@ -639,7 +699,7 @@ class OpsApi(http.Controller):
         if _effective_role(user) not in ("platform_owner", "ops_director"):
             return _error(_("Solo propietario/Dirección de Operaciones"), 403)
         b = _body()
-        ids = [int(b["project_id"])] if b.get("project_id") else None
+        ids = [_int(b["project_id"])] if b.get("project_id") else None
         if ids:
             _get(OPS_RESOURCES["projects"], user, ids[0])
         out = request.env["aq.ops.session.normalizer"].sudo().with_context(portal_user_id=user.id).recount(ids, apply=bool(b.get("apply")), dedupe=b.get("dedupe", True))
@@ -711,7 +771,7 @@ class OpsApi(http.Controller):
 
     @portal_route(OPS + "/ai/assist/<string:resource>/<int:rec_id>", methods=["POST"], app="ops")
     def ai_assist(self, user, resource, rec_id):
-        cfg = _cfg(resource)
+        cfg = _cfg(resource); _check(cfg, "read", user)
         rec = _get(cfg, user, rec_id)
         b = _body()
         if _effective_role(user) in CLIENT_ROLES and b.get("task") not in ("summarize", "questions", "draft", "improve"):

@@ -42,7 +42,7 @@ class AiPrompt(models.Model):
     last_output = fields.Text(string="Última prueba", readonly=True)
     editable_by_direction = fields.Boolean(default=True, string="Editable desde el portal")
 
-    _sql_constraints = [("code_uniq", "unique(code)", "Ya existe un prompt con esa clave.")]
+    _code_uniq = models.Constraint("unique(code)", "Ya existe un prompt con esa clave.")
 
     @api.depends("user_template", "system_prompt")
     def _compute_vars(self):
@@ -50,8 +50,8 @@ class AiPrompt(models.Model):
             p.variables_hint = ", ".join(sorted(set(VAR_RE.findall((p.user_template or "") + " " + (p.system_prompt or ""))))) or "—"
 
     def write(self, vals):
-        if any(k in vals for k in ("system_prompt", "user_template", "json_schema_hint", "tier")):
-            for p in self:
+        for p in self:  # la versión sube solo si el contenido realmente cambia (no en cada -u del módulo)
+            if any(k in vals and (vals[k] or False) != (p[k] or False) for k in ("system_prompt", "user_template", "json_schema_hint", "tier")):
                 super(AiPrompt, p).write({"version": p.version + 1})
         return super().write(vals)
 
@@ -77,7 +77,7 @@ class AiPrompt(models.Model):
                 body += "\n\nDevuelve exclusivamente un objeto JSON con esta forma:\n" + p.json_schema_hint.strip()
             out = AI.chat(body, system=system or AI.SYSTEM_DEFAULT, json_mode=p.json_mode, max_tokens=p.max_tokens or 1500,
                           tier=tier or p.tier, images=images, temperature=p.temperature)
-            p.sudo().write({"last_used": fields.Datetime.now(), "use_count": p.use_count + 1})
+            AI._touch_last_used("aq_ai_prompt", p.id)  # sin escribir en la transacción de la petición (evita bloqueos concurrentes)
             if not p.json_mode:
                 return out
             d = AI.parse_json(out) if out else None

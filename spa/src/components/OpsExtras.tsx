@@ -37,21 +37,27 @@ export default function OpsExtras({ resource, record, reload }: { resource: stri
 
   if (resource === 'items') {
     const idx = STATES.findIndex(s => s[0] === record.state)
+    const NEXT: Record<string, [string, string]> = { backlog: ['por_hacer', 'Pasar a Por hacer'], por_hacer: ['en_progreso', '▶ Iniciar'], en_progreso: ['desarrollo_completado', 'Desarrollo completado'], desarrollo_completado: ['revision_tecnica', '→ Revisión técnica'], revision_tecnica: ['qa_interno', '→ QA interno'], qa_interno: ['regresion', '→ Regresión'], regresion: ['listo_validacion', '→ Listo para validación'], aceptado: ['listo_liberar', '→ Listo para liberar'], listo_liberar: ['liberado', '→ Liberado'], liberado: ['verificado', '→ Verificado'], verificado: ['cerrado', 'Cerrar'] }
+    const next = NEXT[record.state]
+    const isDone = ['cerrado', 'cancelado'].includes(record.state)
     return <div className="card tight">
-      <div className="step-flow">{STATES.map((s, i) => <span key={s[0]} className={i < idx ? 'done' : i === idx ? 'now' : ''}>{s[1]}</span>)}</div>
-      {!external && <div className="toolbar" style={{ marginTop: 8 }}>
-        <button className="btn secondary small" onClick={() => run(() => ops.timerStart({ item_id: record.id }), 'Temporizador iniciado')}>▶ Temporizador</button>
+      <div className="toolbar" style={{ margin: 0, alignItems: 'center' }}>
+        <span className={'badge ' + (isDone ? 'ok' : record.state === 'bloqueado' ? 'err' : 'primary')}>{STATES[idx]?.[1] || record.state}</span>
+        <span style={{ fontSize: 11, color: 'var(--mute2)' }}>paso {idx + 1} de {STATES.length}</span>
+        <span className="spacer" />
+        {!external && !isDone && next && <button className="btn small" onClick={() => run(() => ops.move(record.id, { state: next[0] }), next[1]).then(reload)}>{next[1]}</button>}
+        {!external && !isDone && record.state !== 'cerrado' && <button className="btn done small" onClick={() => run(() => ops.move(record.id, { state: 'cerrado' }), 'Terminado').then(reload)} title="Marcar como terminado">✓ Terminar</button>}
+        {!external && !isDone && record.state !== 'bloqueado' && <button className="btn secondary small" onClick={() => run(() => ops.move(record.id, { state: 'bloqueado' })).then(reload)}>⛔ Bloquear</button>}
+        {!external && record.state === 'bloqueado' && <button className="btn secondary small" onClick={() => run(() => ops.move(record.id, { state: 'en_progreso' })).then(reload)}>Desbloquear</button>}
+        {!external && <button className="btn secondary small" onClick={() => run(() => ops.timerStart({ item_id: record.id }), 'Temporizador iniciado')} title="Iniciar temporizador">⏱</button>}
+      </div>
+      {!external && <details className="more" style={{ marginTop: 6 }}><summary>✦ Copiloto y flujo completo</summary>
+      <div className="step-flow" style={{ marginTop: 8 }}>{STATES.map((s, i) => <span key={s[0]} className={i < idx ? 'done' : i === idx ? 'now' : ''}>{s[1]}</span>)}</div>
+      <div className="toolbar" style={{ marginTop: 8 }}>
         <button className="btn secondary small" onClick={() => run(() => ops.ai(`items/${record.id}/tests`), 'Casos de prueba propuestos (pestaña Casos de prueba)').then(reload)}>Proponer casos de prueba (IA)</button>
         <button className="btn secondary small" onClick={() => run(() => ops.ai(`items/${record.id}/dependencies`)).then(r => r && setAi(r.suggestions.length ? 'Dependencias sugeridas: ' + r.suggestions.map((s: any) => s.name).join(', ') : 'Sin dependencias sugeridas'))}>Sugerir dependencias (IA)</button>
-        {record.state === 'por_hacer' || record.state === 'backlog' ? <button className="btn small" onClick={() => run(() => ops.move(record.id, { state: 'en_progreso' }), 'En progreso').then(reload)}>Iniciar</button> : null}
-        {record.state === 'en_progreso' && <button className="btn small" onClick={() => run(() => ops.move(record.id, { state: 'desarrollo_completado' }), 'Desarrollo completado (no es entregado)').then(reload)}>Desarrollo completado</button>}
-        {record.state === 'desarrollo_completado' && <button className="btn small" onClick={() => run(() => ops.move(record.id, { state: 'revision_tecnica' })).then(reload)}>→ Revisión técnica</button>}
-        {record.state === 'revision_tecnica' && <button className="btn small" onClick={() => run(() => ops.move(record.id, { state: 'qa_interno' })).then(reload)}>→ QA interno</button>}
-        {record.state === 'qa_interno' && <button className="btn small" onClick={() => run(() => ops.move(record.id, { state: 'regresion' })).then(reload)}>→ Regresión</button>}
-        {record.accepted && record.state === 'aceptado' && <button className="btn small" onClick={() => run(() => ops.move(record.id, { state: 'listo_liberar' })).then(reload)}>→ Listo para liberar</button>}
-        {record.state === 'verificado' && <button className="btn small" onClick={() => run(() => ops.move(record.id, { state: 'cerrado' })).then(reload)}>Cerrar</button>}
-      </div>}
-      <Copilot text={ai} />
+      </div>
+      <Copilot text={ai} /></details>}
       {record.waiting_client && <div className="alert info">Esperando al cliente desde {record.waiting_client_since}</div>}
     </div>
   }

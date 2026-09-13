@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useApp } from '../context'
 import RecordTable from '../components/RecordTable'
@@ -20,16 +20,23 @@ export default function ResourceList() {
   const [search, setSearch] = useState(sp.get('q') || '')
   const [order, setOrder] = useState('')
   const [offset, setOffset] = useState(0)
+  const [moreFilters, setMoreFilters] = useState(false)
   const [views, setViews] = useState<any[]>([])
   const loadViews = useCallback(() => { if (app === 'ops') ops.views(resource).then(r => setViews(r.views)).catch(() => {}) }, [app, resource])
   useEffect(() => { loadViews() }, [loadViews])
   const limit = 60
   const filters = useMemo(() => { const f: Record<string, any> = {}; sp.forEach((v, k) => { if (k.startsWith('f.')) f[k.slice(2)] = v }); return f }, [sp])
+  const seq = useRef(0)
+  const [q, setQ] = useState(search)  // búsqueda efectiva (con retardo) para no lanzar una petición por tecla
+  useEffect(() => { const t = setTimeout(() => setQ(search), 250); return () => clearTimeout(t) }, [search])
   const load = useCallback(() => {
     if (!res) return
-    rapi.list(resource, { search, filters, order: order || undefined, limit, offset, domain: projField && active ? [[projField, '=', active.id]] : undefined }).then(r => { setRecords(r.records); setTotal(r.total) }).catch(e => toast(e.message, 'err'))
-  }, [res, resource, search, filters, order, offset, toast, rapi, active, projField])
-  useEffect(() => { setOffset(0) }, [resource, search, filters, active])
+    const my = ++seq.current
+    rapi.list(resource, { search: q, filters, order: order || undefined, limit, offset, domain: projField && active ? [[projField, '=', active.id]] : undefined })
+      .then(r => { if (my !== seq.current) return; setRecords(r.records); setTotal(r.total) })  // una respuesta vieja no pisa la nueva
+      .catch(e => { if (my === seq.current) toast(e.message, 'err') })
+  }, [res, resource, q, filters, order, offset, toast, rapi, active, projField])
+  useEffect(() => { setOffset(0) }, [resource, q, filters, active])
   useEffect(() => { load() }, [load])
   if (!res) return <div className="empty">Recurso no disponible para su rol.</div>
   const setFilter = (k: string, v: any) => {
@@ -81,13 +88,14 @@ export default function ResourceList() {
       <div className="card tight">
         <div className="filters">
           <input type="text" placeholder="Buscar…" value={search} onChange={e => setSearch(e.target.value)} />
-          {res.filters.map(fn => {
+          {res.filters.filter((fn, i) => moreFilters || i < 3 || filters[fn]).map(fn => {
             const f = res.fields[fn]; if (!f) return null
             if (f.type === 'selection') return <select key={fn} value={filters[fn] || ''} onChange={e => setFilter(fn, e.target.value)}><option value="">{f.string}: todos</option>{f.selection!.map(s => <option key={s[0]} value={s[0]}>{s[1]}</option>)}</select>
             if (f.type === 'boolean') return <select key={fn} value={filters[fn] || ''} onChange={e => setFilter(fn, e.target.value)}><option value="">{f.string}: todos</option><option value="true">Sí</option><option value="false">No</option></select>
             if (f.type === 'many2one') return <div key={fn} style={{ minWidth: 200 }}><Many2one model={f.relation!} value={filters[fn] ? { id: Number(filters[fn]), name: sp.get('n.' + fn) || f.string + ' #' + filters[fn] } : null} onChange={v => { const n = new URLSearchParams(sp); if (v) { n.set('f.' + fn, String(v.id)); n.set('n.' + fn, v.name) } else { n.delete('f.' + fn); n.delete('n.' + fn) } setSp(n) }} /></div>
             return null
           })}
+          {res.filters.length > 3 && <button className="btn link small" onClick={() => setMoreFilters(m => !m)}>{moreFilters ? 'Menos filtros' : `Más filtros (${res.filters.length - 3})`}</button>}
           {Object.keys(filters).length > 0 && <button className="btn link small" onClick={() => setSp(new URLSearchParams())}>Limpiar filtros</button>}
           {app === 'ops' && <button className="btn secondary small" onClick={saveFilter}>Guardar filtro</button>}
         </div>
