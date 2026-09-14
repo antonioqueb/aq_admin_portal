@@ -258,8 +258,7 @@ class OpsItem(models.Model):
     @api.constrains("state", "acceptance_criteria", "item_type")
     def _check_acceptance(self):
         for i in self:
-            if i.item_type == "entregable" and i.state in ("listo_validacion", "validacion_cliente", "aceptado", "cerrado") and not i.acceptance_criteria:
-                raise ValidationError(_("Regla Alphaops: ningún entregable avanza a validación ni se cierra sin criterio de aceptación (%s).") % i.name)
+            # El criterio de aceptación es recomendable, no obligatorio: un entregable puede validarse o cerrarse sin él.
             if i.state == "aceptado" and not i.accepted:
                 raise ValidationError(_("'Aceptado' solo se alcanza mediante una validación registrada (aceptación electrónica)."))
 
