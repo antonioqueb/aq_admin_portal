@@ -183,7 +183,9 @@ class OpsItem(models.Model):
     state_since = fields.Datetime(default=fields.Datetime.now, readonly=True)
     days_in_state = fields.Integer(compute="_compute_age")
     age_days = fields.Integer(compute="_compute_age", string="Antigüedad (días)")
-    priority = fields.Selection([("0", "Normal"), ("1", "Alta"), ("2", "Crítica")], default="0")
+    # Obligatoria y sin valor por defecto: quien da de alta un elemento decide su prioridad (la SPA y Odoo la exigen).
+    # Las altas automáticas (plantillas, solicitudes, defectos, recurrencias) la heredan en create().
+    priority = fields.Selection([("0", "Normal"), ("1", "Alta"), ("2", "Crítica")], required=True, tracking=True)
     rank = fields.Integer(default=1000, string="Orden en backlog")
     sequence = fields.Integer(default=10)
     assignee_id = fields.Many2one("aq.portal.member", string="Responsable", tracking=True, index=True)
@@ -272,6 +274,31 @@ class OpsItem(models.Model):
                     raise ValidationError(_("Dependencia circular en %s.") % i.name)
                 if d.id not in seen:
                     seen.add(d.id); stack.extend(d.depends_on_ids)
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        # Las altas directas de una persona (formulario del portal u Odoo) ya exigen la prioridad antes de llegar aquí;
+        # las derivadas (acuerdos de reunión, defectos de prueba, solicitudes, plantillas) la heredan de su origen.
+        for vals in vals_list:
+            if not vals.get("priority"):
+                vals["priority"] = self._inherited_priority(vals)
+        return super().create(vals_list)
+
+    @api.model
+    def _inherited_priority(self, vals):
+        """Prioridad para altas automáticas: la del padre o entregable; la urgencia de la solicitud; la severidad del incidente; si no, Normal."""
+        for fname in ("parent_id", "deliverable_id"):
+            if vals.get(fname):
+                p = self.browse(vals[fname]).priority
+                if p:
+                    return p
+        if vals.get("request_id"):
+            u = self.env["aq.ops.request"].browse(vals["request_id"]).urgency
+            return {"critica": "2", "alta": "1"}.get(u, "0")
+        if vals.get("incident_id"):
+            s = self.env["aq.ops.incident"].browse(vals["incident_id"]).severity
+            return {"S1": "2", "S2": "1"}.get(s, "0")
+        return "0"
 
     def write(self, vals):
         now = fields.Datetime.now()
