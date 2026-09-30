@@ -242,7 +242,7 @@ html[data-theme="light"] ::selection{background:rgba(111,159,28,.25)}
 .proj-list a{padding:6px 10px;font-size:12px;border-left:2px solid transparent}.proj-list a.on{background:rgba(185,232,86,.12);color:#fff;border-left-color:var(--primary)}
 html[data-theme="light"] .proj-list a.on{background:rgba(127,184,26,.14);color:var(--text)}
 .quick{width:100%;border:1px dashed var(--border2);background:transparent;border-radius:8px;padding:6px 9px;font-size:12px;margin-bottom:6px}.quick:focus{border-style:solid}
-select.inline{width:auto;padding:2px 6px;font-size:12px;border-radius:6px}
+select.inline{width:auto;padding:2px 6px;font-size:12px;border-radius:6px}select.inline.missing{border-color:var(--warn,#d9822b);color:var(--warn,#d9822b)}
 .toolbar.bulk{background:var(--card2);border:1px solid var(--border2);border-radius:10px;padding:6px 10px}
 @media(max-width:760px){.ctx-select{max-width:140px}}
 /* ---------- peek, inline, hoy ---------- */

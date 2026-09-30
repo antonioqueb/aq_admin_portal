@@ -10,10 +10,11 @@ const CLIENT_VIEWS = ['list', 'calendar', 'roadmap', 'deliverable']
 
 type Member = { id: number; name: string }
 /** Alta rápida por columna. Vive fuera de WorkViews para que su <input> no se desmonte en cada tecla. */
-function QuickAdd({ type, name, onType, onName, onEnter }: { type: string; name: string; onType: (t: string) => void; onName: (n: string) => void; onEnter: () => void }) {
+function QuickAdd({ type, name, priority, onType, onName, onPriority, onEnter }: { type: string; name: string; priority: string; onType: (t: string) => void; onName: (n: string) => void; onPriority: (p: string) => void; onEnter: () => void }) {
   return (
     <div className="quick-row" onClick={e => e.stopPropagation()}>
       <select className="inline" value={type} onChange={e => onType(e.target.value)}><option value="tarea">Tarea</option><option value="historia">Historia</option><option value="defecto">Defecto</option><option value="entregable">Entregable</option><option value="requerimiento">Requerimiento</option></select>
+      <select className={'inline' + (priority ? '' : ' missing')} value={priority} title="Prioridad (obligatoria)" onChange={e => onPriority(e.target.value)}><option value="">Prioridad…</option><option value="0">Normal</option><option value="1">Alta</option><option value="2">Crítica</option></select>
       <input className="quick" type="text" placeholder="+ Título y Enter…" value={name} onChange={e => onName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') onEnter() }} />
     </div>
   )
@@ -53,6 +54,7 @@ export default function WorkViews({ items, sprints, reload, view, setView, proje
     el.classList.add('grabbing'); window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up)
   }
   const [quickType, setQuickType] = useState<Record<string, string>>({})
+  const [quickPrio, setQuickPrio] = useState<Record<string, string>>({})
   const [members, setMembers] = useState<{ id: number; name: string }[]>([])
   const nav = useNavigate()
   const external = !!(schema?.is_external || user?.is_external)
@@ -83,9 +85,12 @@ export default function WorkViews({ items, sprints, reload, view, setView, proje
     if (!name) return
     if (!projectId) { toast('Seleccione un proyecto activo (sidebar) para alta rápida.', 'err'); return }
     const t = quickType[state] || 'tarea'
-    try { const r = await rapi.create('items', { name, project_id: projectId, item_type: t, state: state === 'backlog' && t === 'defecto' ? 'por_hacer' : state, ...TEMPLATES[t] }); setQuick({ ...quick, [state]: '' }); toast(`${t} creado`, 'ok'); reload(); if (t !== 'tarea') setPeek(r.record.id) } catch (e: any) { toast(e.message, 'err') }
+    // la prioridad es obligatoria: la elige quien da de alta (el defecto propone Alta, pero puede cambiarse)
+    const priority = quickPrio[state] || TEMPLATES[t]?.priority || ''
+    if (!priority) { toast('Indique la prioridad (Normal, Alta o Crítica) antes de crear el elemento.', 'err'); return }
+    try { const r = await rapi.create('items', { name, project_id: projectId, item_type: t, state: state === 'backlog' && t === 'defecto' ? 'por_hacer' : state, ...TEMPLATES[t], priority }); setQuick({ ...quick, [state]: '' }); toast(`${t} creado`, 'ok'); reload(); if (t !== 'tarea') setPeek(r.record.id) } catch (e: any) { toast(e.message, 'err') }
   }
-  const QA = (state: string) => <QuickAdd type={quickType[state] || 'tarea'} name={quick[state] || ''} onType={t => setQuickType({ ...quickType, [state]: t })} onName={n => setQuick(q => ({ ...q, [state]: n }))} onEnter={() => quickAdd(state)} />
+  const QA = (state: string) => <QuickAdd type={quickType[state] || 'tarea'} name={quick[state] || ''} priority={quickPrio[state] || TEMPLATES[quickType[state] || 'tarea']?.priority || ''} onType={t => setQuickType({ ...quickType, [state]: t })} onName={n => setQuick(q => ({ ...q, [state]: n }))} onPriority={p => setQuickPrio({ ...quickPrio, [state]: p })} onEnter={() => quickAdd(state)} />
   const setAssignee = (i: any, id: string) => move(i, { assignee_id: id ? Number(id) : null })
   const setDue = (i: any, d: string) => { if (i.due && d !== i.due) { const r = prompt('Motivo de la reprogramación:'); if (r === null) return; move(i, { date_due: d, reason: r }) } else move(i, { date_due: d }) }
   const applyBulk = async () => {

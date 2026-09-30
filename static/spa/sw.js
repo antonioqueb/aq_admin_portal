@@ -1,6 +1,6 @@
 /* Alphaops · service worker: cascarón sin conexión + caché de lectura de las últimas respuestas de la API.
    La app y sus assets van RED PRIMERO (el bundle nuevo llega en el primer load tras un despliegue); la caché solo sirve sin conexión. */
-const VERSION = 'v3'
+const VERSION = 'v4'
 const SHELL = 'aq-shell-' + VERSION, DATA = 'aq-data-' + VERSION
 self.addEventListener('install', e => { self.skipWaiting() })
 self.addEventListener('activate', e => {
