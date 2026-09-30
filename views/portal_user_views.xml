@@ -12,7 +12,7 @@
                 <field name="has_admin_access"/>
                 <field name="has_ops_access"/>
                 <field name="ops_role"/>
-                <field name="organization_id"/>
+                <field name="organization_names"/>
                 <field name="member_id"/>
                 <field name="last_login"/>
                 <field name="active"/>
@@ -59,6 +59,7 @@
                                 </group>
                                 <group string="Alcance (ABAC)">
                                     <field name="organization_id"/>
+                                    <field name="organization_ids" widget="many2many_tags"/>
                                     <field name="department"/>
                                     <field name="ops_project_ids" widget="many2many_tags"/>
                                     <field name="is_external"/>

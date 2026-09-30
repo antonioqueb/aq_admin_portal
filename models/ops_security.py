@@ -57,8 +57,13 @@ class PortalUserOps(models.Model):
     has_ops_access = fields.Boolean(string="Acceso a Operaciones", default=False, tracking=True,
                                     help="Alphaops: proyectos, backlog, calidad, liberaciones, clientes…")
     ops_role = fields.Selection(OPS_ROLES, string="Perfil en Operaciones", tracking=True)
-    organization_id = fields.Many2one("res.partner", string="Organización (tenant)", domain=[("is_company", "=", True)],
-                                      help="Para usuarios del cliente y socios: limita todo el contenido a esta organización.")
+    organization_id = fields.Many2one("res.partner", string="Organización principal", domain=[("is_company", "=", True)],
+                                      help="Para usuarios del cliente y socios: organización por defecto (solicitudes e incidentes que crea sin proyecto).")
+    organization_ids = fields.Many2many("res.partner", "aq_portal_user_org_rel", "user_id", "partner_id", string="Organizaciones adicionales",
+                                        domain=[("is_company", "=", True)],
+                                        help="Un usuario externo puede pertenecer a varias organizaciones (p. ej. un canal que atiende a su cliente final). "
+                                             "Ve los proyectos de todas ellas, siempre limitado a los proyectos asignados expresamente si los hay.")
+    organization_names = fields.Char(compute="_compute_organization_names", string="Organizaciones")
     department = fields.Char(string="Área / departamento (validador)")
     ops_project_ids = fields.Many2many("aq.ops.project", "aq_ops_project_user_rel", "user_id", "project_id",
                                        string="Proyectos asignados expresamente",
@@ -79,6 +84,26 @@ class PortalUserOps(models.Model):
             u.is_external = u.ops_role in (CLIENT_ROLES | {"partner"})
             u.mfa_required = bool(u.ops_role in MFA_ROLES)
 
+    @api.depends("organization_id", "organization_ids")
+    def _compute_organization_names(self):
+        for u in self:
+            u.organization_names = " · ".join(u.org_partners().mapped("name"))
+
+    def org_partners(self):
+        """Todas las organizaciones del usuario (principal + adicionales), sin duplicados y en orden."""
+        self.ensure_one()
+        return (self.organization_id | self.organization_ids)
+
+    def org_ids(self):
+        return self.org_partners().ids
+
+    def org_for_project(self, project=None):
+        """Organización a la que se atribuye lo que el usuario crea: la del proyecto si es suya; si no, la principal."""
+        self.ensure_one()
+        if project and project.partner_id and project.partner_id.id in self.org_ids():
+            return project.partner_id.id
+        return self.organization_id.id or (self.organization_ids[:1].id if self.organization_ids else False)
+
     def to_public_dict(self):
         d = super().to_public_dict()
         apps = []
@@ -87,7 +112,7 @@ class PortalUserOps(models.Model):
         if self.has_ops_access and self.ops_role:
             apps.append("ops")
         d.update(apps=apps, ops_role=self.ops_role, organization_id=self.organization_id.id or None,
-                 organization_name=self.organization_id.name or None, department=self.department,
+                 organization_ids=self.org_ids(), organization_name=self.organization_names or None, department=self.department,
                  is_external=self.is_external, can_export=self.can_export, mfa_enabled=self.mfa_enabled,
                  mfa_required=self.mfa_required, project_ids=self.ops_project_ids.ids)
         return d
@@ -95,7 +120,8 @@ class PortalUserOps(models.Model):
     # --- revocación inmediata ---
     def write(self, vals):
         res = super().write(vals)
-        if vals.get("active") is False or "ops_role" in vals or "role" in vals or "has_ops_access" in vals or "has_admin_access" in vals:
+        if vals.get("active") is False or "ops_role" in vals or "role" in vals or "has_ops_access" in vals or "has_admin_access" in vals \
+                or "organization_id" in vals or "organization_ids" in vals or "ops_project_ids" in vals:
             self.sudo().session_ids.write({"active": False})
         return res
 

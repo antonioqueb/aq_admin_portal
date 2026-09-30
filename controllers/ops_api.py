@@ -35,13 +35,14 @@ def _scope(user):
     if role == "admin_liaison":
         return [], None, role
     if role in CLIENT_ROLES:
-        org = user.organization_id.id
-        if not org:
-            return [], None, role
-        ids = P.search([("partner_id", "=", org), ("client_visible", "=", True)]).ids
+        # `org` es la lista de organizaciones del usuario (principal + adicionales); nunca se cruza a otros clientes
+        orgs = user.org_ids()
+        if not orgs:
+            return [], [], role
+        ids = P.search([("partner_id", "in", orgs), ("client_visible", "=", True)]).ids
         if user.ops_project_ids:
             ids = [i for i in ids if i in user.ops_project_ids.ids]
-        return ids, org, role
+        return ids, orgs, role
     if role in RESTRICTED_ROLES:
         return user.ops_project_ids.ids, None, role
     # internos: proyectos donde participan (PM, líder, equipo) + asignados expresamente
@@ -82,11 +83,11 @@ def _scope_domain(cfg, user):
         if "internal" in Model._fields:
             dom.append(("internal", "=", False))
         if cfg.get("org_field") and org:
-            dom.append((cfg["org_field"], "=", org))
+            dom.append((cfg["org_field"], "in", org))
         if role == "client_requester" and cfg["model"] == "aq.ops.request":
             dom.append(("requester_user_id", "=", user.id))
         if cfg["model"] == "aq.ops.incident" and org:
-            dom.append(("partner_id", "=", org))
+            dom.append(("partner_id", "in", org))
     if cfg["model"] == "aq.ops.saved.view":
         dom = ["|", ("user_id", "=", user.id), ("shared", "=", True)]
     if cfg["model"] == "aq.ops.timesheet" and role not in (FULL_ROLES | {"pm", "functional_lead", "tech_lead"}) and user.member_id:
@@ -194,7 +195,7 @@ class OpsApi(http.Controller):
     def schema(self, user):
         role = _effective_role(user)
         out = {"sections": OPS_SECTIONS, "resources": {}, "role": role, "is_external": role in CLIENT_ROLES, "ai_available": request.env["aq.ops.ai"].sudo().available(),
-               "organization": user.organization_id.name, "breakglass": bool(request.env["aq.ops.breakglass"].sudo().active_for(user))}
+               "organization": user.organization_names or None, "breakglass": bool(request.env["aq.ops.breakglass"].sudo().active_for(user))}
         for key, cfg in OPS_RESOURCES.items():
             if role not in cfg["roles"].get("read", []):
                 continue
@@ -254,16 +255,21 @@ class OpsApi(http.Controller):
         if role in CLIENT_ROLES:
             allowed = set(cfg.get("client_editable", [])) | {"project_id", "partner_id", "item_id", "request_id", "meeting_id", "incident_id", "parent_id", "case_id", "result", "evidence", "executed_by_partner_id", "internal"}
             body = {k: v for k, v in body.items() if k in allowed}
+            # la organización se toma del proyecto (si es de este usuario) y, si no hay proyecto, de su organización principal
+            pid = body.get("project_id")
+            pid = pid.get("id") if isinstance(pid, dict) else pid
+            proj = request.env["aq.ops.project"].sudo().browse(int(pid)) if pid else None
+            org_id = user.org_for_project(proj)
             if cfg["model"] == "aq.ops.request":
-                body["partner_id"] = user.organization_id.id; body["requester_user_id"] = user.id; body["source"] = "empleado_cliente" if role == "client_requester" else "cliente"
+                body["partner_id"] = org_id; body["requester_user_id"] = user.id; body["source"] = "empleado_cliente" if role == "client_requester" else "cliente"
                 body["requester_department"] = body.get("requester_department") or user.department
             if cfg["model"] == "aq.ops.comment":
                 body["internal"] = False
             if cfg["model"] == "aq.ops.incident":
-                body["partner_id"] = user.organization_id.id
+                body["partner_id"] = org_id
         vals = _prepare_vals(cfg["model"], body, user, {"direction_fields": []})
         if role in CLIENT_ROLES and cfg["model"] == "aq.ops.request":
-            vals.update(partner_id=user.organization_id.id, requester_user_id=user.id, source=body["source"])
+            vals.update(partner_id=org_id, requester_user_id=user.id, source=body["source"])
         # el padre debe estar dentro del alcance
         parents = {"project_id": "projects", "item_id": "items", "request_id": "requests", "meeting_id": "meetings", "incident_id": "incidents", "case_id": "test_cases", "release_id": "releases",
                    "milestone_id": "milestones", "parent_id": "items", "deliverable_id": "items", "sprint_id": "sprints", "plan_id": "test_plans"}
@@ -378,7 +384,7 @@ class OpsApi(http.Controller):
         res_key = ops_resource_for_model(model)
         dom = _scope_domain(OPS_RESOURCES[res_key], user) if res_key else []
         if model == "res.partner" and _effective_role(user) in CLIENT_ROLES:
-            dom = ["|", ("id", "=", user.organization_id.id), ("parent_id", "=", user.organization_id.id)]  # nunca cruzar clientes
+            dom = ["|", ("id", "in", user.org_ids()), ("parent_id", "in", user.org_ids())]  # nunca cruzar clientes
         dom += _safe_domain(model, request.params.get("domain"))  # dominio del campo (p. ej. solo empresas)
         if "active" in Model._fields:
             dom.append(("active", "=", True))

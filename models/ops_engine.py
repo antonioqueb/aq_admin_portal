@@ -419,14 +419,14 @@ class OpsEngine(models.AbstractModel):
                           for a in self.env["aq.ops.acceptance"].search([("decision", "=", "pendiente")] + dom) if user.ops_role != "client_requester" and (not a.department or not user.department or a.department.lower() == user.department.lower())],
             "questions": [{"id": q.id, "name": q.name, "meeting": q.meeting_id.name, "project": q.meeting_id.project_id.name} for q in self.env["aq.ops.meeting.question"].search([("answered", "=", False), ("client_visible", "=", True), ("meeting_id.project_id", "in", P.ids)])],
             "commitments": [{"id": i.id, "name": i.name, "project": i.project_id.name, "due": str(i.date_due or "")} for i in self.env["aq.ops.item"].search(dom + [("waiting_client", "=", True)] + ACTIVE_ITEM_DOM)],
-            "requests": [{"id": r.id, "name": r.name, "state": r.state, "type": r.request_type, "date": str(r.create_date.date()), "response": r.response} for r in self.env["aq.ops.request"].search([("partner_id", "=", user.organization_id.id)] + own, limit=50)],
+            "requests": [{"id": r.id, "name": r.name, "state": r.state, "type": r.request_type, "date": str(r.create_date.date()), "response": r.response} for r in self.env["aq.ops.request"].search([("partner_id", "in", user.org_ids())] + own, limit=50)],
             "tests": [{"id": c.id, "name": c.name, "project": c.project_id.name, "result": c.last_result, "department": c.department} for c in self.env["aq.ops.test.case"].search([("client_visible", "=", True), ("project_id", "in", P.ids), ("plan_id.plan_type", "=", "uat")], limit=40)],
             "decisions": [{"id": d.id, "name": d.name, "decision": d.decision_text, "date": str(d.date), "state": d.state} for d in self.env["aq.ops.decision"].search(dom + [("state", "=", "aprobada")], limit=20)],
             "meetings": [{"id": m.id, "name": m.name, "date": str(m.date), "project": m.project_id.name, "state": m.state} for m in self.env["aq.ops.meeting"].search(dom, order="date desc", limit=15)],
             "risks": [{"id": r.id, "name": r.name, "project": r.project_id.name, "severity": r.severity, "owner": r.client_owner_id.name} for r in self.env["aq.ops.raid"].search(dom + [("requires_client", "=", True), ("state", "not in", ("cerrado",))])],
-            "incidents": [{"id": i.id, "name": i.name, "severity": i.severity, "step": i.step, "project": i.project_id.name} for i in self.env["aq.ops.incident"].search(dom + [("partner_id", "=", user.organization_id.id)], limit=20)],
+            "incidents": [{"id": i.id, "name": i.name, "severity": i.severity, "step": i.step, "project": i.project_id.name} for i in self.env["aq.ops.incident"].search(dom + [("partner_id", "in", user.org_ids())], limit=20)],
             "documents": [{"id": d.id, "name": d.name, "type": d.doc_type, "url": d.drive_url, "version": d.version, "project": d.project_id.name} for d in self.env["aq.ops.document"].search(dom + [("is_current", "=", True)], limit=40)],
-            "organization": user.organization_id.name,
+            "organization": user.organization_names,
         }
 
     @api.model

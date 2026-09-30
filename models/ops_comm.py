@@ -65,7 +65,8 @@ class OpsNotification(models.Model):
     def notify_partner(self, partner, category, title, resource=None, res_id=None, body=None):
         if not partner:
             return
-        for u in self.env["aq.portal.user"].search([("active", "=", True), ("has_ops_access", "=", True), "|", ("organization_id", "=", partner.id), ("organization_id", "=", partner.commercial_partner_id.id)]):
+        orgs = [partner.id, partner.commercial_partner_id.id]
+        for u in self.env["aq.portal.user"].search([("active", "=", True), ("has_ops_access", "=", True), "|", ("organization_id", "in", orgs), ("organization_ids", "in", orgs)]):
             if u.ops_role in ("client_sponsor", "client_po", "client_validator"):
                 self.push(u, category, title, resource, res_id, body)
 
